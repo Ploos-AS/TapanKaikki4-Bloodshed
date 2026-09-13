@@ -113,9 +113,21 @@ config="$OUT_DIR/aros-guest.fs-uae"
 sed "s|@AROS_ROOT@|$PWD/$aros_root|" ci/fs-uae/aros-guest.fs-uae > "$config"
 fs-uae --version > "$OUT_DIR/fs-uae-version.txt" 2>&1 || true
 
+# FS-UAE/Xvfb can leave descendants behind after TERM. Run the emulator under
+# GNU timeout with a hard KILL grace period, then explicitly reap any remaining
+# descendants owned by this harness before collecting guest evidence.
 set +e
-timeout 45s xvfb-run -a fs-uae "$config" > "$OUT_DIR/fs-uae.log" 2>&1
+timeout --signal=TERM --kill-after=5s 45s \
+  xvfb-run -a fs-uae "$config" > "$OUT_DIR/fs-uae.log" 2>&1
 fsuae_rc=$?
+
+# Best-effort cleanup. Restrict matching to this run's config/root so we do not
+# interfere with unrelated processes on self-hosted runners.
+pkill -TERM -f "fs-uae.*$(printf '%q' "$config")" 2>/dev/null || true
+pkill -TERM -f "Xvfb.*$PWD" 2>/dev/null || true
+sleep 1
+pkill -KILL -f "fs-uae.*$(printf '%q' "$config")" 2>/dev/null || true
+pkill -KILL -f "Xvfb.*$PWD" 2>/dev/null || true
 set -e
 
 started="$aros_root/tk4-m3-started.txt"
