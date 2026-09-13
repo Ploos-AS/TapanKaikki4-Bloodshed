@@ -45,9 +45,13 @@ cleanup_emulator() {
 
 run_probe() {
   local name="$1" bin="$2" marker="$3"
-  local run_dir="$OUT_DIR/$name" tree="$run_dir/system-tree"
-  rm -rf "$run_dir"; mkdir -p "$run_dir"; cp -a "$base/." "$tree/"
-  local root; root="$(probe_root "$tree")"
+  local run_dir="$OUT_DIR/$name"
+  local tree="$run_dir/system-tree"
+  rm -rf "$run_dir"
+  mkdir -p "$tree"
+  cp -a "$base/." "$tree/"
+  local root
+  root="$(probe_root "$tree")"
   local startup="$root/S/Startup-Sequence"
   cp "$NATIVE_DIR/$bin" "$root/$bin"
   mkdir -p "$root/save"
@@ -91,7 +95,8 @@ done
   echo "GATE=M3_ENEMYBASE_SIZE"
   for spec in "${probes[@]}"; do
     IFS=: read -r name bin marker <<<"$spec"
-    tree="$OUT_DIR/$name/system-tree"; root="$(probe_root "$tree")"
+    tree="$OUT_DIR/$name/system-tree"
+    root="$(probe_root "$tree")"
     key="$(printf '%s' "$name" | tr '[:lower:]-' '[:upper:]_')"
     [[ -f "$root/save/$marker" ]] && main=yes || main=no
     [[ -f "$root/probe-after.txt" ]] && returned=yes || returned=no
