@@ -16,7 +16,9 @@
 const std::string SaveDataPath=getsavebasedir();
 EXPORT std::string getsavebasedir()
 {
-#ifdef __unix__
+#if defined(__amigaos__) || defined(__AMIGA__) || defined(AMIGA)
+	return "PROGDIR:save/";
+#elif defined(__unix__)
 	const char *home = getenv("HOME");
 
 	if (home == NULL)
@@ -40,12 +42,14 @@ EXPORT std::string getsavepath(const std::string& name)
 
 EXPORT std::string getdatapath(const std::string& name)
 {
-#ifdef __unix__
+#if defined(__amigaos__) || defined(__AMIGA__) || defined(AMIGA)
+	return std::string("PROGDIR:data/") + name;
+#elif defined(__unix__)
 	std::string ret = std::string(DATADIR) + std::string("/") + name;
-#else
-	std::string ret = name;
-#endif
 	return ret;
+#else
+	return name;
+#endif
 }
 
 EXPORT std::string getpath(const char *name)
