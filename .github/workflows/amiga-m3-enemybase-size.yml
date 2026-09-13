@@ -53,13 +53,15 @@ jobs:
               CXX=/opt/amiga/bin/m68k-amigaos-g++
               BASE="-m68020 -msoft-float -noixemul"
               ENEMY_OBJ="CMakeFiles/tk4-common.dir/src/common/CEnemyBase.cpp.obj"
+              TYPE_IF_OBJ="CMakeFiles/tk4-common.dir/src/common/TypeInterfaces.cpp.obj"
               test -f "$ENEMY_OBJ"
+              test -f "$TYPE_IF_OBJ"
 
               $CXX $BASE \
                 -DPROBE_MARKER=\"SYS:save/m3-enemybase-main.txt\" \
                 -DPROBE_LABEL=\"ENEMYBASE_MAIN=1\\n\" \
                 -c ../ci/fs-uae/m3-enemybase-size-probe.cpp -o enemybase-main.o
-              $CXX $BASE enemybase-main.o "$ENEMY_OBJ" -o tk4-enemybase-probe
+              $CXX $BASE enemybase-main.o "$ENEMY_OBJ" "$TYPE_IF_OBJ" -o tk4-enemybase-probe
 
               for kb in 700 850 950 1000 1050 1100 1250; do
                 bytes=$((kb * 1024))
