@@ -51,7 +51,9 @@ jobs:
               cmake --build . -- -j2
 
               CXX=/opt/amiga/bin/m68k-amigaos-g++
+              AR=/opt/amiga/bin/m68k-amigaos-ar
               BASE="-m68020 -msoft-float -noixemul"
+              INCLUDES="-I../src/common -I../src -I/opt/amiga/m68k-amigaos/include/SDL"
               SDL_LIB=/opt/amiga/m68k-amigaos/lib/libSDL.a
               IMAGE_LIB=/opt/amiga/SDL_image-pack/lib/libSDL_image.a
               MIXER_LIB=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
@@ -62,6 +64,54 @@ jobs:
 
               TYPES_OBJ="CMakeFiles/tk4-common.dir/src/common/types.cpp.obj"
               test -f "$TYPES_OBJ"
+
+              cp libtk4-common.a libtk4-common-notypes.a
+              TYPES_MEMBER="$($AR t libtk4-common-notypes.a | grep "types.cpp.obj$" | head -n 1)"
+              test -n "$TYPES_MEMBER"
+              $AR d libtk4-common-notypes.a "$TYPES_MEMBER"
+              ! $AR t libtk4-common-notypes.a | grep -q "types.cpp.obj$"
+
+              WEAPON_STAR="$(grep -n "^\\* CWeaponFist" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
+              BULLET_STAR="$(grep -n "^\\* CBulletFist" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
+              test -n "$WEAPON_STAR"
+              test -n "$BULLET_STAR"
+              WEAPON_START=$((WEAPON_STAR - 1))
+              BULLET_START=$((BULLET_STAR - 1))
+              CORE_END=$((WEAPON_START - 1))
+              WEAPON_END=$((BULLET_START - 1))
+
+              make_group_source() {
+                name="$1"
+                start="$2"
+                end="$3"
+                out="types-${name}.cpp"
+                sed -n "1,5p" ../src/common/types.cpp > "$out"
+                if [ "$end" = "EOF" ]; then
+                  sed -n "${start},\$p" ../src/common/types.cpp >> "$out"
+                else
+                  sed -n "${start},${end}p" ../src/common/types.cpp >> "$out"
+                fi
+              }
+
+              make_group_source core 7 "$CORE_END"
+              make_group_source weapons "$WEAPON_START" "$WEAPON_END"
+              make_group_source bullets "$BULLET_START" EOF
+
+              build_group_probe() {
+                name="$1"
+                marker="$2"
+                upper="$3"
+                $CXX $BASE $INCLUDES -c "types-${name}.cpp" -o "types-${name}.o"
+                $CXX $BASE \
+                  -DPROBE_MARKER=\"SYS:save/${marker}\" \
+                  -DPROBE_LABEL=\"${upper}_MAIN=1\\n\" \
+                  -c ../ci/fs-uae/tk4-object-probe.cpp -o "${name}-main.o"
+                $CXX $BASE "${name}-main.o" "types-${name}.o" libtk4-common-notypes.a $LIBS -o "tk4-types-${name}-probe"
+              }
+
+              build_group_probe core m3-types-core-main.txt TYPES_CORE
+              build_group_probe weapons m3-types-weapons-main.txt TYPES_WEAPONS
+              build_group_probe bullets m3-types-bullets-main.txt TYPES_BULLETS
 
               $CXX $BASE \
                 -DPROBE_MARKER=\"SYS:save/m3-types-main.txt\" \
@@ -78,7 +128,15 @@ jobs:
                 $LIBS -o tk4-common-whole-probe
 
               : > tk4-object-isolation-report.txt
-              for bin in tk4-types-probe tk4-common-whole-probe tk4; do
+              echo "SPLIT_WEAPON_START=$WEAPON_START" >> tk4-object-isolation-report.txt
+              echo "SPLIT_BULLET_START=$BULLET_START" >> tk4-object-isolation-report.txt
+              for bin in \
+                tk4-types-core-probe \
+                tk4-types-weapons-probe \
+                tk4-types-bullets-probe \
+                tk4-types-probe \
+                tk4-common-whole-probe \
+                tk4; do
                 echo "=== $bin ===" >> tk4-object-isolation-report.txt
                 stat -c "BYTES=%s" "$bin" >> tk4-object-isolation-report.txt
                 /opt/amiga/bin/m68k-amigaos-size -A "$bin" >> tk4-object-isolation-report.txt || true
@@ -102,8 +160,10 @@ jobs:
         with:
           name: tk4-amiga-m3-object-isolation
           path: |
+            build-amiga/tk4-types-*-probe
             build-amiga/tk4-types-probe
             build-amiga/tk4-common-whole-probe
+            build-amiga/types-*.cpp
             build-amiga/tk4-object-isolation-report.txt
             build-amiga/*-objdump.txt
             build-amiga/*-relocations.txt
