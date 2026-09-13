@@ -21,17 +21,27 @@
 #include "common/CEventHandler.h"
 
 #ifdef AMIGA
+static bool amiga_m3_write_marker(const char* base, const char* name)
+{
+	char path[192];
+	int n = snprintf(path, sizeof(path), "%s/%s", base, name);
+	if (n <= 0 || n >= (int)sizeof(path))
+		return false;
+
+	FILE* f = fopen(path, "w");
+	if (!f)
+		return false;
+
+	fputs("1\n", f);
+	fclose(f);
+	return true;
+}
+
 static void amiga_m3_marker(const char* name)
 {
-	char path[160];
-	if (snprintf(path, sizeof(path), "PROGDIR:save/%s", name) <= 0)
+	if (amiga_m3_write_marker("PROGDIR:save", name))
 		return;
-	FILE* f = fopen(path, "w");
-	if (f)
-	{
-		fputs("1\n", f);
-		fclose(f);
-	}
+	(void)amiga_m3_write_marker("SYS:save", name);
 }
 #else
 static void amiga_m3_marker(const char*) {}
@@ -140,10 +150,8 @@ void CGameApp::Loop()
 
 		if (!iEffectData->iEnabled)
 		{
-			// Check if area under message board needs cleanup
 			iMBoard->Run(dirtyArea);
 
-			// if first draw of state, then do full update
 			if (iState->First() || iFullUpdate)
 			{
 				dirtyArea.Combine(iGGI->DrawBuffer()->Rect());
@@ -152,9 +160,7 @@ void CGameApp::Loop()
 
 			try
 			{
-				// run the actual state
 				draw = iState->RunFrame();
-				// draw if draw needed
 				if (draw||dirtyArea.Size()>0)
 					iState->Draw(dirtyArea,updatedArea);
 			}
@@ -169,24 +175,19 @@ void CGameApp::Loop()
 				else throw;
 			}
 			
-			// draw message board over everything else
 			iMBoard->Draw(iGGI,updatedArea);
-
 			iGGI->GD()->ShowBuf(iGGI->DrawBuffer(),updatedArea);
 		}
-		else // Process screen effect
+		else
 		{
-			// Done already?
 			if (TimerCounter>iEffectData->iStarted+iEffectData->iDuration)
 			{
-				/* Some problems with palette */
 				if (iEffectData->iFadeIn)
 					iGGI->GD()->SetPalette(*iEffectData->iPalette,256);
 				else
 					iGGI->GD()->SetPalette(*iEffectData->iPalette,0);
 
 				iEffectData->iEnabled = false;
-
 				restoreTimer();
 
 				try
@@ -206,11 +207,10 @@ void CGameApp::Loop()
 					else throw;
 				}
 
-				iGGI->GD()->ShowBuf(iGGI->DrawBuffer()); // normal draw
+				iGGI->GD()->ShowBuf(iGGI->DrawBuffer());
 			}
-			else // not done yet.. continue drawing
+			else
 			{
-				// Don't try this at home:    ;)
 				(iGGI->Fader()->*iEffectData->iFaderMethod)
 					(
 						*iGGI->DrawBuffer(), 
@@ -224,17 +224,11 @@ void CGameApp::Loop()
 		}
 
 		if ( !iActive )
-			SDL_Delay( 10 ); // Let's give some CPU time to other processes.... ;)
-		/* Handle keystrokes and others events*/
-		//do
-		//{
-			if (iEventHandler->HandleEvents()==1)
-			{
-				return;
-			}
-		//} while (! TimerUpdated );
-
-		//TimerUpdated = false;
+			SDL_Delay( 10 );
+		if (iEventHandler->HandleEvents()==1)
+		{
+			return;
+		}
 	}
 
 	LOG0("Getting out of game loop...\n");
@@ -253,7 +247,6 @@ void CGameApp::StartFadeIn( const CPalette& aPalette )
 	iEffectData->iFaderMethod = &CGraphicsFader::FadeIn;
 	saveTimer();
 }
-
 
 void CGameApp::StartFadeIn(CGameData::TPaletteNo aPal)
 {
@@ -290,7 +283,6 @@ void CGameApp::StartZoomOut(CState aNextState)
 
 	saveTimer();
 }
-
 
 CGameState* CGameApp::State()
 {
@@ -381,7 +373,6 @@ void CGameApp::Run(int argc,char *argv[])
 	Loop();
 }
 
-
 void CGameApp::GraphicsModeChanged()
 {
 	iFullUpdate = true;
@@ -406,7 +397,6 @@ void CGameApp::SetActive( bool aActive )
 void CGameApp::SelfTest()
 {
 	DEBUG0("Running Self Tests\n");
-	// Do basic tests on some classes
 	CRect<int>::SelfTest();
 	CDrawArea::SelfTest();
 }
