@@ -15,9 +15,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Cross-build in Bebbo toolchain image
+        id: crossbuild
         shell: bash
         run: |
-          set -euxo pipefail
+          set +e
           docker run --rm \
             -v "$PWD:/work" \
             -w /work \
@@ -46,7 +47,18 @@ jobs:
               cmake --build build-amiga -- -j2
               m68k-amigaos-objdump -f build-amiga/tk4 || true
               file build-amiga/tk4 || true
-            '
+            ' 2>&1 | tee amiga-m1-build.log
+          status=${PIPESTATUS[0]}
+          echo "docker_status=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Upload M1 build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amiga-m1-build-log
+          path: amiga-m1-build.log
+          if-no-files-found: error
 
       - name: Upload cross-build result
         if: success()
