@@ -23,7 +23,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
 
-      - name: Build enemy-base and synthetic size probes
+      - name: Build enemy-base split and synthetic size probes
         run: |
           docker run --rm \
             -v "$PWD:/work" \
@@ -52,16 +52,30 @@ jobs:
 
               CXX=/opt/amiga/bin/m68k-amigaos-g++
               BASE="-m68020 -msoft-float -noixemul"
+              INC="-I../src/common -I../src"
               ENEMY_OBJ="CMakeFiles/tk4-common.dir/src/common/CEnemyBase.cpp.obj"
               TYPE_IF_OBJ="CMakeFiles/tk4-common.dir/src/common/TypeInterfaces.cpp.obj"
               test -f "$ENEMY_OBJ"
               test -f "$TYPE_IF_OBJ"
 
-              $CXX $BASE \
-                -DPROBE_MARKER=\"SYS:save/m3-enemybase-main.txt\" \
-                -DPROBE_LABEL=\"ENEMYBASE_MAIN=1\\n\" \
-                -c ../ci/fs-uae/m3-enemybase-size-probe.cpp -o enemybase-main.o
-              $CXX $BASE enemybase-main.o "$ENEMY_OBJ" "$TYPE_IF_OBJ" -o tk4-enemybase-probe
+              build_probe() {
+                name="$1"
+                marker="$2"
+                label="$3"
+                shift 3
+                $CXX $BASE \
+                  -DPROBE_MARKER=\"SYS:save/$marker\" \
+                  -DPROBE_LABEL=\"${label}=1\\n\" \
+                  -c ../ci/fs-uae/m3-enemybase-size-probe.cpp -o "${name}-main.o"
+                $CXX $BASE "${name}-main.o" "$@" "$TYPE_IF_OBJ" -o "$name"
+              }
+
+              build_probe tk4-enemybase-probe m3-enemybase-main.txt ENEMYBASE_MAIN "$ENEMY_OBJ"
+
+              $CXX $BASE $INC -c ../ci/fs-uae/m3-enemybase-ctor.cpp -o enemybase-ctor.o
+              $CXX $BASE $INC -c ../ci/fs-uae/m3-enemybase-accessors.cpp -o enemybase-accessors.o
+              build_probe tk4-enemybase-ctor-probe m3-enemybase-ctor-main.txt ENEMYBASE_CTOR_MAIN enemybase-ctor.o
+              build_probe tk4-enemybase-accessors-probe m3-enemybase-accessors-main.txt ENEMYBASE_ACCESSORS_MAIN enemybase-accessors.o
 
               for kb in 700 850 950 1000 1050 1100 1250; do
                 bytes=$((kb * 1024))
@@ -74,7 +88,7 @@ jobs:
               done
 
               : > m3-enemybase-size-build.txt
-              for bin in tk4-enemybase-probe tk4-pad-*k; do
+              for bin in tk4-enemybase-probe tk4-enemybase-ctor-probe tk4-enemybase-accessors-probe tk4-pad-*k; do
                 echo "=== $bin ===" >> m3-enemybase-size-build.txt
                 stat -c "BYTES=%s" "$bin" >> m3-enemybase-size-build.txt
                 /opt/amiga/bin/m68k-amigaos-size -A "$bin" >> m3-enemybase-size-build.txt || true
@@ -83,7 +97,7 @@ jobs:
               cat m3-enemybase-size-build.txt
             '
 
-      - name: Run AROS enemy-base and size probes
+      - name: Run AROS enemy-base split and size probes
         run: |
           chmod +x ci/fs-uae/*.sh
           ci/fs-uae/run-aros-enemybase-size.sh
@@ -95,6 +109,8 @@ jobs:
           name: tk4-amiga-m3-enemybase-size
           path: |
             build-amiga/tk4-enemybase-probe
+            build-amiga/tk4-enemybase-ctor-probe
+            build-amiga/tk4-enemybase-accessors-probe
             build-amiga/tk4-pad-*k
             build-amiga/m3-enemybase-size-build.txt
             build/fs-uae/aros-m3-enemybase-size/result.txt
