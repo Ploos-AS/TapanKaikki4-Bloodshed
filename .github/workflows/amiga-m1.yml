@@ -1,0 +1,57 @@
+name: Amiga M1 cross-build
+
+on:
+  push:
+    branches: [amiga-m1]
+  pull_request:
+    branches: [amiga-m0, master]
+  workflow_dispatch:
+
+jobs:
+  cross-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cross-build in Bebbo toolchain image
+        shell: bash
+        run: |
+          set -euxo pipefail
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            ozzyboshi/bebbo-amiga-gcc:latest \
+            bash -lc '
+              set -eux
+              m68k-amigaos-g++ --version
+              if ! command -v cmake >/dev/null 2>&1; then
+                apt-get update
+                DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
+              fi
+              cmake --version
+              echo "== SDL headers/libraries =="
+              find /opt /usr/local -type f \( \
+                -name SDL.h -o \
+                -name SDL_image.h -o \
+                -name SDL_mixer.h -o \
+                -name libSDL.a -o \
+                -name libSDL_image.a -o \
+                -name libSDL_mixer.a \
+              \) 2>/dev/null | sort || true
+              cmake -S . -B build-amiga \
+                -DCMAKE_TOOLCHAIN_FILE=cmake/amiga-toolchain.cmake \
+                -DTK4_AMIGA=ON \
+                -DCMAKE_BUILD_TYPE=Release
+              cmake --build build-amiga -- -j2
+              m68k-amigaos-objdump -f build-amiga/tk4 || true
+              file build-amiga/tk4 || true
+            '
+
+      - name: Upload cross-build result
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-amiga-m1
+          path: build-amiga/tk4
+          if-no-files-found: error
