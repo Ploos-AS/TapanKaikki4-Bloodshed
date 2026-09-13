@@ -63,15 +63,19 @@ target_link_libraries(tk4-common ${SDL_LIBRARY} ${SDL_IMAGE_LIBRARIES})
 # game ###################################################################################
 file(GLOB GAME_SOURCES src/*.h src/*.cpp src/*.rc)
 if(TK4_AMIGA)
-	# M1 uses a deliberately offline network backend while the base game is
-	# brought up. SDL_net will be qualified separately later.
+	# M1 uses deliberately Amiga-specific filesystem and offline network
+	# backends while the base game is brought up. SDL_net will be qualified
+	# separately later.
 	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/network.cpp)
+	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/lists_unix.cpp)
 	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/lists_win32.cpp)
 elseif(WIN32)
 	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/lists_unix.cpp)
+	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/lists_amiga.cpp)
 	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/network_amiga.cpp)
 else()
 	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/lists_win32.cpp)
+	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/lists_amiga.cpp)
 	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/network_amiga.cpp)
 endif()
 add_executable(tk4 ${GAME_SOURCES})
