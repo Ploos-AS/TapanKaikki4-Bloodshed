@@ -71,12 +71,20 @@ jobs:
               $AR d libtk4-common-notypes.a "$TYPES_MEMBER"
               ! $AR t libtk4-common-notypes.a | grep -q "types.cpp.obj$"
 
+              EFFECT_STAR="$(grep -n "^\\* CEffectBlood" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
+              ENEMY_STAR="$(grep -n "^\\* CEnemyPistolboy" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
               WEAPON_STAR="$(grep -n "^\\* CWeaponFist" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
               BULLET_STAR="$(grep -n "^\\* CBulletFist" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
+              test -n "$EFFECT_STAR"
+              test -n "$ENEMY_STAR"
               test -n "$WEAPON_STAR"
               test -n "$BULLET_STAR"
+              EFFECT_START=$((EFFECT_STAR - 1))
+              ENEMY_START=$((ENEMY_STAR - 1))
               WEAPON_START=$((WEAPON_STAR - 1))
               BULLET_START=$((BULLET_STAR - 1))
+              BODY_END=$((EFFECT_START - 1))
+              EFFECT_END=$((ENEMY_START - 1))
               CORE_END=$((WEAPON_START - 1))
               WEAPON_END=$((BULLET_START - 1))
 
@@ -94,6 +102,9 @@ jobs:
               }
 
               make_group_source core 7 "$CORE_END"
+              make_group_source core-body 7 "$BODY_END"
+              make_group_source core-effects "$EFFECT_START" "$EFFECT_END"
+              make_group_source core-enemies "$ENEMY_START" "$CORE_END"
               make_group_source weapons "$WEAPON_START" "$WEAPON_END"
               make_group_source bullets "$BULLET_START" EOF
 
@@ -110,6 +121,9 @@ jobs:
               }
 
               build_group_probe core m3-types-core-main.txt TYPES_CORE
+              build_group_probe core-body m3-types-core-body-main.txt TYPES_CORE_BODY
+              build_group_probe core-effects m3-types-core-effects-main.txt TYPES_CORE_EFFECTS
+              build_group_probe core-enemies m3-types-core-enemies-main.txt TYPES_CORE_ENEMIES
               build_group_probe weapons m3-types-weapons-main.txt TYPES_WEAPONS
               build_group_probe bullets m3-types-bullets-main.txt TYPES_BULLETS
 
@@ -128,10 +142,15 @@ jobs:
                 $LIBS -o tk4-common-whole-probe
 
               : > tk4-object-isolation-report.txt
+              echo "SPLIT_EFFECT_START=$EFFECT_START" >> tk4-object-isolation-report.txt
+              echo "SPLIT_ENEMY_START=$ENEMY_START" >> tk4-object-isolation-report.txt
               echo "SPLIT_WEAPON_START=$WEAPON_START" >> tk4-object-isolation-report.txt
               echo "SPLIT_BULLET_START=$BULLET_START" >> tk4-object-isolation-report.txt
               for bin in \
                 tk4-types-core-probe \
+                tk4-types-core-body-probe \
+                tk4-types-core-effects-probe \
+                tk4-types-core-enemies-probe \
                 tk4-types-weapons-probe \
                 tk4-types-bullets-probe \
                 tk4-types-probe \
@@ -167,5 +186,7 @@ jobs:
             build-amiga/tk4-object-isolation-report.txt
             build-amiga/*-objdump.txt
             build-amiga/*-relocations.txt
-            build/fs-uae/aros-m3-bisect/**
+            build/fs-uae/aros-m3-bisect/result.txt
+            build/fs-uae/aros-m3-bisect/*/result.txt
+            build/fs-uae/aros-m3-bisect/*/fs-uae.log
           if-no-files-found: warn
