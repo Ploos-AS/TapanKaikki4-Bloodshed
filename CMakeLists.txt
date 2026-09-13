@@ -80,7 +80,16 @@ else()
 endif()
 add_executable(tk4 ${GAME_SOURCES})
 if(TK4_AMIGA)
-	target_link_libraries(tk4 tk4-common ${SDL_LIBRARY} ${SDL_IMAGE_LIBRARIES} ${SDL_MIXER_LIBRARIES})
+	# Static archives are order-sensitive. SDL_image and SDL_mixer depend on SDL,
+	# while SDL_image also needs the codec archives provided by the Bebbo sysroot.
+	target_link_libraries(tk4
+		tk4-common
+		${SDL_IMAGE_LIBRARIES}
+		${SDL_MIXER_LIBRARIES}
+		${SDL_LIBRARY}
+		jpeg
+		png
+		z)
 else()
 	target_link_libraries(tk4 tk4-common ${SDL_LIBRARY} ${SDL_IMAGE_LIBRARIES} ${SDL_MIXER_LIBRARIES} ${SDL_NET_LIBRARIES})
 endif()
