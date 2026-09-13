@@ -1,4 +1,4 @@
-name: Amiga M3 object bisection
+name: Amiga M3 HUNK size bisection
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  object-half-bisect:
+  hunk-size-bisect:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,7 +23,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
 
-      - name: Build TK4 and object-half probes
+      - name: Build TK4 and HUNK size probes
         run: |
           docker run --rm \
             -v "$PWD:/work" \
@@ -50,54 +50,38 @@ jobs:
                 -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
               cmake --build . -- -j2
 
+              CC=/opt/amiga/bin/m68k-amigaos-gcc
               CXX=/opt/amiga/bin/m68k-amigaos-g++
               BASE="-m68020 -msoft-float -noixemul"
-              IMAGE_LIB=/opt/amiga/SDL_image-pack/lib/libSDL_image.a
-              MIXER_LIB=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
-              SDL_LIB=/opt/amiga/m68k-amigaos/lib/libSDL.a
-              JPEG_LIB=/opt/amiga/SDL_image-pack/lib/libjpeg.a
-              PNG_LIB=/opt/amiga/SDL_image-pack/lib/libpng.a
-              Z_LIB=/opt/amiga/zlib-package/lib/libz.a
 
-              mapfile -t TK4_OBJS < <(find CMakeFiles/tk4.dir -type f -name "*.obj" ! -path "*/main.cpp.obj" | sort)
-              count=${#TK4_OBJS[@]}
-              mid=$(( (count + 1) / 2 ))
-              HALF_A=("${TK4_OBJS[@]:0:mid}")
-              HALF_B=("${TK4_OBJS[@]:mid}")
+              : > tk4-hunk-size-report.txt
+              echo "=== tk4 ===" >> tk4-hunk-size-report.txt
+              stat -c "BYTES=%s" tk4 >> tk4-hunk-size-report.txt
+              /opt/amiga/bin/m68k-amigaos-size -A tk4 >> tk4-hunk-size-report.txt || true
 
-              {
-                echo "TOTAL=$count"
-                echo "MID=$mid"
-                echo "=== HALF_A ==="
-                printf "%s\n" "${HALF_A[@]}"
-                echo "=== HALF_B ==="
-                printf "%s\n" "${HALF_B[@]}"
-              } | tee tk4-object-bisect-manifest.txt
-
-              $CXX $BASE \
-                -DPROBE_MARKER=\"SYS:save/m3-tk4-half-a-main.txt\" \
-                -DPROBE_LABEL=\"TK4_HALF_A_MAIN=1\\n\" \
-                -c ../ci/fs-uae/tk4-object-probe.cpp -o tk4-half-a-main.o
-              $CXX $BASE \
-                -DPROBE_MARKER=\"SYS:save/m3-tk4-half-b-main.txt\" \
-                -DPROBE_LABEL=\"TK4_HALF_B_MAIN=1\\n\" \
-                -c ../ci/fs-uae/tk4-object-probe.cpp -o tk4-half-b-main.o
-
-              LINK_COMMON=(libtk4-common.a "$IMAGE_LIB" "$MIXER_LIB" "$SDL_LIB" "$JPEG_LIB" "$PNG_LIB" "$Z_LIB" -lpthread)
-              $CXX $BASE -Wl,--unresolved-symbols=ignore-all tk4-half-a-main.o "${HALF_A[@]}" "${LINK_COMMON[@]}" -o tk4-object-half-a-probe
-              $CXX $BASE -Wl,--unresolved-symbols=ignore-all tk4-half-b-main.o "${HALF_B[@]}" "${LINK_COMMON[@]}" -o tk4-object-half-b-probe
-
-              : > tk4-object-bisect-size.txt
-              for bin in tk4 tk4-object-half-a-probe tk4-object-half-b-probe; do
-                echo "=== $bin ===" >> tk4-object-bisect-size.txt
-                stat -c "BYTES=%s" "$bin" >> tk4-object-bisect-size.txt
-                /opt/amiga/bin/m68k-amigaos-size -A "$bin" >> tk4-object-bisect-size.txt || true
-                /opt/amiga/bin/m68k-amigaos-objdump -f "$bin" > "$bin-objdump.txt"
+              for kib in 512 1024 1536 1792 2048; do
+                bytes=$((kib * 1024))
+                cat > "pad-${kib}.s" <<EOF
+                .section .text
+                .globl tk4_pad_${kib}
+              tk4_pad_${kib}:
+                .space ${bytes},0
+EOF
+                $CC $BASE -c "pad-${kib}.s" -o "pad-${kib}.o"
+                $CXX $BASE \
+                  -DPROBE_MARKER=\"SYS:save/m3-hunk-${kib}-main.txt\" \
+                  -DPROBE_LABEL=\"HUNK_${kib}_MAIN=1\\n\" \
+                  -c ../ci/fs-uae/tk4-object-probe.cpp -o "probe-${kib}-main.o"
+                $CXX $BASE "probe-${kib}-main.o" "pad-${kib}.o" -o "tk4-hunk-${kib}-probe"
+                echo "=== tk4-hunk-${kib}-probe ===" >> tk4-hunk-size-report.txt
+                stat -c "BYTES=%s" "tk4-hunk-${kib}-probe" >> tk4-hunk-size-report.txt
+                /opt/amiga/bin/m68k-amigaos-size -A "tk4-hunk-${kib}-probe" >> tk4-hunk-size-report.txt || true
+                /opt/amiga/bin/m68k-amigaos-objdump -f "tk4-hunk-${kib}-probe" > "tk4-hunk-${kib}-probe-objdump.txt"
               done
-              cat tk4-object-bisect-size.txt
+              cat tk4-hunk-size-report.txt
             '
 
-      - name: Run independent AROS half-bisection
+      - name: Run independent AROS HUNK size sweep
         run: |
           chmod +x ci/fs-uae/*.sh
           ci/fs-uae/run-aros-object-bisect.sh
@@ -106,11 +90,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tk4-amiga-m3-object-bisect
+          name: tk4-amiga-m3-hunk-size-bisect
           path: |
-            build-amiga/tk4-object-half-*-probe
-            build-amiga/tk4-object-bisect-manifest.txt
-            build-amiga/tk4-object-bisect-size.txt
+            build-amiga/tk4-hunk-*-probe
+            build-amiga/tk4-hunk-size-report.txt
             build-amiga/*-objdump.txt
             build/fs-uae/aros-m3-bisect/**
           if-no-files-found: warn
