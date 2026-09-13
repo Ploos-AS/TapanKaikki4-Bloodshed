@@ -13,7 +13,7 @@ permissions:
 jobs:
   enemybase-size:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -87,6 +87,35 @@ jobs:
                 build_probe "$bin" "$marker" "$label" "$obj"
               done
 
+              # Compile the real empty EnemyBase constructor with runtime features selectively disabled.
+              for mode in nortti noexceptions both; do
+                extra=""
+                case "$mode" in
+                  nortti) extra="-fno-rtti" ;;
+                  noexceptions) extra="-fno-exceptions" ;;
+                  both) extra="-fno-rtti -fno-exceptions" ;;
+                esac
+                obj="enemybase-ctor-${mode}.o"
+                bin="tk4-enemybase-ctor-${mode}-probe"
+                marker="m3-enemybase-ctor-${mode}-main.txt"
+                $CXX $BASE $extra $INC -DCTOR_STAGE=0 \
+                  -c ../ci/fs-uae/m3-enemybase-ctor-split.cpp -o "$obj"
+                $CXX $BASE $extra \
+                  -DPROBE_MARKER=\"SYS:save/$marker\" \
+                  -c ../ci/fs-uae/m3-enemybase-size-probe.cpp -o "${bin}-main.o"
+                $CXX $BASE $extra "${bin}-main.o" "$obj" "$TYPE_IF_OBJ" -o "$bin"
+              done
+
+              # Independent hierarchy probes: no virtuals -> direct virtuals -> abstract base -> pure dtor -> IEnemyType-shaped base.
+              for variant in 0 1 2 3 4; do
+                bin="tk4-vtable-${variant}-probe"
+                marker="m3-vtable-${variant}-main.txt"
+                $CXX $BASE \
+                  -DPROBE_VARIANT=$variant \
+                  -DPROBE_MARKER=\"SYS:save/$marker\" \
+                  ../ci/fs-uae/m3-enemybase-vtable-probe.cpp -o "$bin"
+              done
+
               for kb in 700 850 950 1000 1050 1100 1250; do
                 bytes=$((kb * 1024))
                 $CXX $BASE \
@@ -98,11 +127,12 @@ jobs:
               done
 
               : > m3-enemybase-size-build.txt
-              for bin in tk4-enemybase-probe tk4-enemybase-ctor-probe tk4-enemybase-accessors-probe tk4-enemybase-ctor-stage*-probe tk4-pad-*k; do
+              for bin in tk4-enemybase-probe tk4-enemybase-ctor-probe tk4-enemybase-accessors-probe tk4-enemybase-ctor-stage*-probe tk4-enemybase-ctor-nortti-probe tk4-enemybase-ctor-noexceptions-probe tk4-enemybase-ctor-both-probe tk4-vtable-*-probe tk4-pad-*k; do
                 echo "=== $bin ===" >> m3-enemybase-size-build.txt
                 stat -c "BYTES=%s" "$bin" >> m3-enemybase-size-build.txt
                 /opt/amiga/bin/m68k-amigaos-size -A "$bin" >> m3-enemybase-size-build.txt || true
                 /opt/amiga/bin/m68k-amigaos-objdump -f "$bin" >> m3-enemybase-size-build.txt || true
+                /opt/amiga/bin/m68k-amigaos-nm -C "$bin" | grep -E "vtable|typeinfo|CEnemyBase|IEnemyType|Probe(Base|Enemy)" >> m3-enemybase-size-build.txt || true
               done
               cat m3-enemybase-size-build.txt
             '
@@ -122,6 +152,10 @@ jobs:
             build-amiga/tk4-enemybase-ctor-probe
             build-amiga/tk4-enemybase-accessors-probe
             build-amiga/tk4-enemybase-ctor-stage*-probe
+            build-amiga/tk4-enemybase-ctor-nortti-probe
+            build-amiga/tk4-enemybase-ctor-noexceptions-probe
+            build-amiga/tk4-enemybase-ctor-both-probe
+            build-amiga/tk4-vtable-*-probe
             build-amiga/tk4-pad-*k
             build-amiga/m3-enemybase-size-build.txt
             build/fs-uae/aros-m3-enemybase-size/result.txt
