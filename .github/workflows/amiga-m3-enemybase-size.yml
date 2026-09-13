@@ -13,7 +13,7 @@ permissions:
 jobs:
   enemybase-size:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -77,6 +77,16 @@ jobs:
               build_probe tk4-enemybase-ctor-probe m3-enemybase-ctor-main.txt ENEMYBASE_CTOR_MAIN enemybase-ctor.o
               build_probe tk4-enemybase-accessors-probe m3-enemybase-accessors-main.txt ENEMYBASE_ACCESSORS_MAIN enemybase-accessors.o
 
+              for stage in 0 1 2 3 4; do
+                obj="enemybase-ctor-stage${stage}.o"
+                bin="tk4-enemybase-ctor-stage${stage}-probe"
+                marker="m3-enemybase-ctor-stage${stage}-main.txt"
+                label="ENEMYBASE_CTOR_STAGE${stage}_MAIN"
+                $CXX $BASE $INC -DCTOR_STAGE=$stage \
+                  -c ../ci/fs-uae/m3-enemybase-ctor-split.cpp -o "$obj"
+                build_probe "$bin" "$marker" "$label" "$obj"
+              done
+
               for kb in 700 850 950 1000 1050 1100 1250; do
                 bytes=$((kb * 1024))
                 $CXX $BASE \
@@ -88,7 +98,7 @@ jobs:
               done
 
               : > m3-enemybase-size-build.txt
-              for bin in tk4-enemybase-probe tk4-enemybase-ctor-probe tk4-enemybase-accessors-probe tk4-pad-*k; do
+              for bin in tk4-enemybase-probe tk4-enemybase-ctor-probe tk4-enemybase-accessors-probe tk4-enemybase-ctor-stage*-probe tk4-pad-*k; do
                 echo "=== $bin ===" >> m3-enemybase-size-build.txt
                 stat -c "BYTES=%s" "$bin" >> m3-enemybase-size-build.txt
                 /opt/amiga/bin/m68k-amigaos-size -A "$bin" >> m3-enemybase-size-build.txt || true
@@ -111,6 +121,7 @@ jobs:
             build-amiga/tk4-enemybase-probe
             build-amiga/tk4-enemybase-ctor-probe
             build-amiga/tk4-enemybase-accessors-probe
+            build-amiga/tk4-enemybase-ctor-stage*-probe
             build-amiga/tk4-pad-*k
             build-amiga/m3-enemybase-size-build.txt
             build/fs-uae/aros-m3-enemybase-size/result.txt
