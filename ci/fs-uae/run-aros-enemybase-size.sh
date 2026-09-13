@@ -10,6 +10,11 @@ probes=(
   "enemybase:tk4-enemybase-probe:m3-enemybase-main.txt"
   "enemybase-ctor:tk4-enemybase-ctor-probe:m3-enemybase-ctor-main.txt"
   "enemybase-accessors:tk4-enemybase-accessors-probe:m3-enemybase-accessors-main.txt"
+  "enemybase-ctor-stage0:tk4-enemybase-ctor-stage0-probe:m3-enemybase-ctor-stage0-main.txt"
+  "enemybase-ctor-stage1:tk4-enemybase-ctor-stage1-probe:m3-enemybase-ctor-stage1-main.txt"
+  "enemybase-ctor-stage2:tk4-enemybase-ctor-stage2-probe:m3-enemybase-ctor-stage2-main.txt"
+  "enemybase-ctor-stage3:tk4-enemybase-ctor-stage3-probe:m3-enemybase-ctor-stage3-main.txt"
+  "enemybase-ctor-stage4:tk4-enemybase-ctor-stage4-probe:m3-enemybase-ctor-stage4-main.txt"
   "pad-700k:tk4-pad-700k:m3-pad-700k-main.txt"
   "pad-850k:tk4-pad-850k:m3-pad-850k-main.txt"
   "pad-950k:tk4-pad-950k:m3-pad-950k-main.txt"
@@ -98,7 +103,7 @@ done
 
 {
   echo "STATUS=DIAGNOSTIC"
-  echo "GATE=M3_ENEMYBASE_SPLIT"
+  echo "GATE=M3_ENEMYBASE_CTOR_SPLIT"
   for spec in "${probes[@]}"; do
     IFS=: read -r name bin marker <<<"$spec"
     tree="$OUT_DIR/$name/system-tree"
