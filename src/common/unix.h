@@ -5,16 +5,25 @@
 #define __unix__
 #endif
 
-#ifdef __unix__
+#if defined(__unix__) || defined(AMIGA)
 
+#ifndef EXPORT
 #define EXPORT
+#endif
+
+#ifdef AMIGA
+#define NORETURN __attribute__((noreturn))
+#else
 #define NORETURN
+#endif
 
 /* Some functions and names that differ on windows and other platforms */
 #define EF_STAT stat
 #define EF_SNPRINTF snprintf
 #define EF_GETCWD getcwd
+#ifndef AMIGA
 #define EF_SDLWINDOW info.x11.window /* window in SDL_SysWMinfo structure */
+#endif
 
 #define DIR_SEPARATOR '/'
 
@@ -27,6 +36,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <algorithm>
 using std::min;
@@ -37,8 +47,39 @@ inline void ChangeDir(const char* str)
 	chdir(str);
 }
 
+#ifdef AMIGA
+inline char* strcasestr(const char *haystack, const char *needle)
+{
+	if (!*needle)
+		return const_cast<char*>(haystack);
+
+	for (const char *h = haystack; *h; ++h)
+	{
+		const char *hp = h;
+		const char *np = needle;
+		while (*hp && *np &&
+		       tolower((unsigned char)*hp) == tolower((unsigned char)*np))
+		{
+			++hp;
+			++np;
+		}
+		if (!*np)
+			return const_cast<char*>(h);
+	}
+	return 0;
+}
+
+inline char *strset(char *buf,char fill)
+{
+	int len=strlen(buf);
+	for (int a=0;a<len;a++)
+		buf[a]=fill;
+	return buf;
+}
+#else
 inline char* strupr(char *buf)
-{	int len=strlen(buf);
+{
+	int len=strlen(buf);
 	
 	for (int a=0;a<len;a++)
 	{
@@ -48,7 +89,8 @@ inline char* strupr(char *buf)
 }
 
 inline char* strlwr(char *buf)
-{	int len=strlen(buf);
+{
+	int len=strlen(buf);
 	
 	for (int a=0;a<len;a++)
 	{
@@ -58,7 +100,8 @@ inline char* strlwr(char *buf)
 }
 
 inline char *strset(char *buf,char fill)
-{	int len=strlen(buf);
+{
+	int len=strlen(buf);
 	
 	for (int a=0;a<len;a++)
 	{
@@ -66,8 +109,8 @@ inline char *strset(char *buf,char fill)
 	}	
 	return buf;
 }
+#endif
 
-#endif // __unix__
+#endif // __unix__ || AMIGA
 
 #endif // __UNIX_H
-

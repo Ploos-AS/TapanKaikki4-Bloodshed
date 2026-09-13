@@ -1,0 +1,85 @@
+name: Amiga M1 cross-build
+
+on:
+  push:
+    branches: [amiga-m1]
+  pull_request:
+    branches: [amiga-m0, master]
+  workflow_dispatch:
+
+jobs:
+  cross-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cross-build in Bebbo toolchain image
+        id: crossbuild
+        shell: bash
+        run: |
+          set +e
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            ozzyboshi/bebbo-amiga-gcc:latest \
+            bash -lc '
+              set -eux
+              m68k-amigaos-g++ --version
+              if ! command -v cmake >/dev/null 2>&1; then
+                apt-get update
+                DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
+              fi
+              cmake --version
+              echo "== SDL headers/libraries =="
+              find /opt /usr/local -type f \( \
+                -name SDL.h -o \
+                -name SDL_image.h -o \
+                -name SDL_mixer.h -o \
+                -name libSDL.a -o \
+                -name libSDL_image.a -o \
+                -name libSDL_mixer.a \
+              \) 2>/dev/null | sort || true
+              echo "== JPEG/PNG/zlib candidates =="
+              find /opt /usr/local -type f \( \
+                -iname "*jpeg*.a" -o \
+                -iname "*jpg*.a" -o \
+                -iname "*png*.a" -o \
+                -iname "libz*.a" \
+              \) 2>/dev/null | sort || true
+              rm -rf build-amiga
+              mkdir build-amiga
+              cd build-amiga
+              cmake .. \
+                -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake \
+                -DTK4_AMIGA=ON \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL \
+                -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
+                -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL \
+                -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a \
+                -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include \
+                -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              cmake --build . -- -j2
+              m68k-amigaos-objdump -f tk4 || true
+              file tk4 || true
+            ' 2>&1 | tee amiga-m1-build.log
+          status=${PIPESTATUS[0]}
+          echo "docker_status=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Upload M1 build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amiga-m1-build-log
+          path: amiga-m1-build.log
+          if-no-files-found: error
+
+      - name: Upload cross-build result
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-amiga-m1
+          path: build-amiga/tk4
+          if-no-files-found: error

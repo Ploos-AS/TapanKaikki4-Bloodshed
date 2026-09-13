@@ -5,7 +5,9 @@ set(PROJECT_VERSION 4.09)
 option(TK4_AMIGA "Build Tapan Kaikki 4 for classic AmigaOS/m68k" OFF)
 
 if(TK4_AMIGA)
-	add_definitions(-DAMIGA -DDISABLE_GAMMA)
+	# The classic Amiga build is fully static, so the Windows DLL-style EXPORT
+	# annotation has no meaning here. Define it to nothing for all sources.
+	add_definitions(-DAMIGA -DDISABLE_GAMMA -DTK4_NO_NETWORK -DEXPORT=)
 endif()
 
 if(NOT MINGW)
@@ -22,13 +24,15 @@ endif()
 find_package(SDL 1 REQUIRED)
 find_package(SDL_image 1 REQUIRED)
 find_package(SDL_mixer 1 REQUIRED)
-find_package(SDL_net 1 REQUIRED)
+if(NOT TK4_AMIGA)
+	find_package(SDL_net 1 REQUIRED)
+endif()
 include_directories(
 	${SDL_INCLUDE_DIR}
 	${SDL_IMAGE_INCLUDE_DIRS}
-	${SDL_MIXER_INCLUDE_DIRS}
-	${SDL_NET_INCLUDE_DIRS})
+	${SDL_MIXER_INCLUDE_DIRS})
 if(NOT TK4_AMIGA)
+	include_directories(${SDL_NET_INCLUDE_DIRS})
 	include_directories(/usr/local/include) # Temporary workaround for 'X11/Xlib.h not found'
 endif()
 if(APPLE)
@@ -58,13 +62,41 @@ target_link_libraries(tk4-common ${SDL_LIBRARY} ${SDL_IMAGE_LIBRARIES})
 
 # game ###################################################################################
 file(GLOB GAME_SOURCES src/*.h src/*.cpp src/*.rc)
-if(WIN32)
+if(TK4_AMIGA)
+	# M1 uses deliberately Amiga-specific filesystem and offline network
+	# backends while the base game is brought up. SDL_net will be qualified
+	# separately later.
+	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/network.cpp)
 	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/lists_unix.cpp)
+	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/lists_win32.cpp)
+elseif(WIN32)
+	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/lists_unix.cpp)
+	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/lists_amiga.cpp)
+	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/network_amiga.cpp)
 else()
 	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/lists_win32.cpp)
+	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/lists_amiga.cpp)
+	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/network_amiga.cpp)
 endif()
 add_executable(tk4 ${GAME_SOURCES})
-target_link_libraries(tk4 tk4-common ${SDL_LIBRARY} ${SDL_IMAGE_LIBRARIES} ${SDL_MIXER_LIBRARIES} ${SDL_NET_LIBRARIES})
+if(TK4_AMIGA)
+	# Static archives are order-sensitive. SDL_image and SDL_mixer depend on SDL.
+	# The Bebbo image keeps the codec archives outside the default m68k library
+	# search path, so M1 names their qualified locations explicitly.
+	set(AMIGA_JPEG_LIBRARY "/opt/amiga/SDL_image-pack/lib/libjpeg.a" CACHE FILEPATH "Amiga libjpeg archive")
+	set(AMIGA_PNG_LIBRARY "/opt/amiga/SDL_image-pack/lib/libpng.a" CACHE FILEPATH "Amiga libpng archive")
+	set(AMIGA_ZLIB_LIBRARY "/opt/amiga/zlib-package/lib/libz.a" CACHE FILEPATH "Amiga zlib archive")
+	target_link_libraries(tk4
+		tk4-common
+		${SDL_IMAGE_LIBRARIES}
+		${SDL_MIXER_LIBRARIES}
+		${SDL_LIBRARY}
+		${AMIGA_JPEG_LIBRARY}
+		${AMIGA_PNG_LIBRARY}
+		${AMIGA_ZLIB_LIBRARY})
+else()
+	target_link_libraries(tk4 tk4-common ${SDL_LIBRARY} ${SDL_IMAGE_LIBRARIES} ${SDL_MIXER_LIBRARIES} ${SDL_NET_LIBRARIES})
+endif()
 
 
 # editor #################################################################################
