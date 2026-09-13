@@ -50,8 +50,16 @@ jobs:
                 -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
               cmake --build . -- -j2
               /opt/amiga/bin/m68k-amigaos-gcc -m68020 -msoft-float -noixemul ../ci/fs-uae/loader-probe.c -o loader-probe
+              /opt/amiga/bin/m68k-amigaos-g++ -m68020 -msoft-float -noixemul ../ci/fs-uae/cxx-init-probe.cpp -o cxx-init-probe
+              /opt/amiga/bin/m68k-amigaos-g++ -m68020 -msoft-float -noixemul \
+                -I/opt/amiga/m68k-amigaos/include/SDL \
+                ../ci/fs-uae/sdl-startup-probe.cpp \
+                /opt/amiga/m68k-amigaos/lib/libSDL.a -lpthread \
+                -o sdl-startup-probe
               /opt/amiga/bin/m68k-amigaos-objdump -f tk4 > tk4-objdump.txt
               /opt/amiga/bin/m68k-amigaos-objdump -f loader-probe > loader-probe-objdump.txt
+              /opt/amiga/bin/m68k-amigaos-objdump -f cxx-init-probe > cxx-init-probe-objdump.txt
+              /opt/amiga/bin/m68k-amigaos-objdump -f sdl-startup-probe > sdl-startup-probe-objdump.txt
             '
 
       - name: Execute playable-baseline gate inside AROS guest
@@ -67,8 +75,9 @@ jobs:
           path: |
             build-amiga/tk4
             build-amiga/loader-probe
-            build-amiga/tk4-objdump.txt
-            build-amiga/loader-probe-objdump.txt
+            build-amiga/cxx-init-probe
+            build-amiga/sdl-startup-probe
+            build-amiga/*-objdump.txt
             build/fs-uae/aros-system/source.txt
             build/fs-uae/aros-system/archive.sha256
             build/fs-uae/aros-m3/result.txt
