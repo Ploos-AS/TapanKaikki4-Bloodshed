@@ -13,7 +13,7 @@ permissions:
 jobs:
   object-isolation:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -73,26 +73,27 @@ jobs:
 
               EFFECT_STAR="$(grep -n "^\\* CEffectBlood" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
               ENEMY_STAR="$(grep -n "^\\* CEnemyPistolboy" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
+              CIVILIAN_STAR="$(grep -n "^\\* CEnemyCivilian" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
+              PUNISHER_STAR="$(grep -n "^\\* CEnemyPunisher" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
               WEAPON_STAR="$(grep -n "^\\* CWeaponFist" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
               BULLET_STAR="$(grep -n "^\\* CBulletFist" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
-              test -n "$EFFECT_STAR"
-              test -n "$ENEMY_STAR"
-              test -n "$WEAPON_STAR"
-              test -n "$BULLET_STAR"
+              for v in "$EFFECT_STAR" "$ENEMY_STAR" "$CIVILIAN_STAR" "$PUNISHER_STAR" "$WEAPON_STAR" "$BULLET_STAR"; do test -n "$v"; done
+
               EFFECT_START=$((EFFECT_STAR - 1))
               ENEMY_START=$((ENEMY_STAR - 1))
+              CIVILIAN_START=$((CIVILIAN_STAR - 1))
+              PUNISHER_START=$((PUNISHER_STAR - 1))
               WEAPON_START=$((WEAPON_STAR - 1))
               BULLET_START=$((BULLET_STAR - 1))
               BODY_END=$((EFFECT_START - 1))
               EFFECT_END=$((ENEMY_START - 1))
+              ENEMY_A_END=$((CIVILIAN_START - 1))
+              ENEMY_B_END=$((PUNISHER_START - 1))
               CORE_END=$((WEAPON_START - 1))
               WEAPON_END=$((BULLET_START - 1))
 
               make_group_source() {
-                name="$1"
-                start="$2"
-                end="$3"
-                out="types-${name}.cpp"
+                name="$1"; start="$2"; end="$3"; out="types-${name}.cpp"
                 sed -n "1,5p" ../src/common/types.cpp > "$out"
                 if [ "$end" = "EOF" ]; then
                   sed -n "${start},\$p" ../src/common/types.cpp >> "$out"
@@ -105,13 +106,14 @@ jobs:
               make_group_source core-body 7 "$BODY_END"
               make_group_source core-effects "$EFFECT_START" "$EFFECT_END"
               make_group_source core-enemies "$ENEMY_START" "$CORE_END"
+              make_group_source enemy-a "$ENEMY_START" "$ENEMY_A_END"
+              make_group_source enemy-b "$CIVILIAN_START" "$ENEMY_B_END"
+              make_group_source enemy-c "$PUNISHER_START" "$CORE_END"
               make_group_source weapons "$WEAPON_START" "$WEAPON_END"
               make_group_source bullets "$BULLET_START" EOF
 
               build_group_probe() {
-                name="$1"
-                marker="$2"
-                upper="$3"
+                name="$1"; marker="$2"; upper="$3"
                 $CXX $BASE $INCLUDES -c "types-${name}.cpp" -o "types-${name}.o"
                 $CXX $BASE \
                   -DPROBE_MARKER=\"SYS:save/${marker}\" \
@@ -124,6 +126,9 @@ jobs:
               build_group_probe core-body m3-types-core-body-main.txt TYPES_CORE_BODY
               build_group_probe core-effects m3-types-core-effects-main.txt TYPES_CORE_EFFECTS
               build_group_probe core-enemies m3-types-core-enemies-main.txt TYPES_CORE_ENEMIES
+              build_group_probe enemy-a m3-types-enemy-a-main.txt TYPES_ENEMY_A
+              build_group_probe enemy-b m3-types-enemy-b-main.txt TYPES_ENEMY_B
+              build_group_probe enemy-c m3-types-enemy-c-main.txt TYPES_ENEMY_C
               build_group_probe weapons m3-types-weapons-main.txt TYPES_WEAPONS
               build_group_probe bullets m3-types-bullets-main.txt TYPES_BULLETS
 
@@ -144,6 +149,8 @@ jobs:
               : > tk4-object-isolation-report.txt
               echo "SPLIT_EFFECT_START=$EFFECT_START" >> tk4-object-isolation-report.txt
               echo "SPLIT_ENEMY_START=$ENEMY_START" >> tk4-object-isolation-report.txt
+              echo "SPLIT_CIVILIAN_START=$CIVILIAN_START" >> tk4-object-isolation-report.txt
+              echo "SPLIT_PUNISHER_START=$PUNISHER_START" >> tk4-object-isolation-report.txt
               echo "SPLIT_WEAPON_START=$WEAPON_START" >> tk4-object-isolation-report.txt
               echo "SPLIT_BULLET_START=$BULLET_START" >> tk4-object-isolation-report.txt
               for bin in \
@@ -151,6 +158,9 @@ jobs:
                 tk4-types-core-body-probe \
                 tk4-types-core-effects-probe \
                 tk4-types-core-enemies-probe \
+                tk4-types-enemy-a-probe \
+                tk4-types-enemy-b-probe \
+                tk4-types-enemy-c-probe \
                 tk4-types-weapons-probe \
                 tk4-types-bullets-probe \
                 tk4-types-probe \
