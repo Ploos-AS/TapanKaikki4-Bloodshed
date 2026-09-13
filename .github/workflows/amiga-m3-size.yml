@@ -1,0 +1,33 @@
+name: Amiga M3 executable size diagnostics
+
+on:
+  push:
+    branches: [amiga-m3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  size-diagnostics:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build object size inventory
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -eux
+            if ! command -v cmake >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y cmake; fi
+            rm -rf build-amiga-size && mkdir build-amiga-size && cd build-amiga-size
+            cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake -DTK4_AMIGA=ON -DCMAKE_BUILD_TYPE=Release -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+            cmake --build . -- -j2
+            : > object-size-report.txt
+            find CMakeFiles/tk4.dir CMakeFiles/tk4-common.dir -type f \( -name "*.obj" -o -name "*.o" \) -print0 | while IFS= read -r -d "" obj; do
+              /opt/amiga/bin/m68k-amigaos-size "$obj" | tail -n 1 | awk -v o="$obj" "{print \$1, \$2, \$3, \$4, o}"
+            done | sort -k4,4nr > object-size-report.txt
+            head -n 40 object-size-report.txt
+          '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-object-size-report
+          path: build-amiga-size/object-size-report.txt
