@@ -15,6 +15,14 @@ probes=(
   "enemybase-ctor-stage2:tk4-enemybase-ctor-stage2-probe:m3-enemybase-ctor-stage2-main.txt"
   "enemybase-ctor-stage3:tk4-enemybase-ctor-stage3-probe:m3-enemybase-ctor-stage3-main.txt"
   "enemybase-ctor-stage4:tk4-enemybase-ctor-stage4-probe:m3-enemybase-ctor-stage4-main.txt"
+  "enemybase-ctor-nortti:tk4-enemybase-ctor-nortti-probe:m3-enemybase-ctor-nortti-main.txt"
+  "enemybase-ctor-noexceptions:tk4-enemybase-ctor-noexceptions-probe:m3-enemybase-ctor-noexceptions-main.txt"
+  "enemybase-ctor-both:tk4-enemybase-ctor-both-probe:m3-enemybase-ctor-both-main.txt"
+  "vtable-0:tk4-vtable-0-probe:m3-vtable-0-main.txt"
+  "vtable-1:tk4-vtable-1-probe:m3-vtable-1-main.txt"
+  "vtable-2:tk4-vtable-2-probe:m3-vtable-2-main.txt"
+  "vtable-3:tk4-vtable-3-probe:m3-vtable-3-main.txt"
+  "vtable-4:tk4-vtable-4-probe:m3-vtable-4-main.txt"
   "pad-700k:tk4-pad-700k:m3-pad-700k-main.txt"
   "pad-850k:tk4-pad-850k:m3-pad-850k-main.txt"
   "pad-950k:tk4-pad-950k:m3-pad-950k-main.txt"
@@ -103,7 +111,7 @@ done
 
 {
   echo "STATUS=DIAGNOSTIC"
-  echo "GATE=M3_ENEMYBASE_CTOR_SPLIT"
+  echo "GATE=M3_ENEMYBASE_VTABLE_RTTI"
   for spec in "${probes[@]}"; do
     IFS=: read -r name bin marker <<<"$spec"
     tree="$OUT_DIR/$name/system-tree"
