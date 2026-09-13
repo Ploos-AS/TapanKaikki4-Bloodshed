@@ -15,6 +15,7 @@ bins=(
   link-image-probe
   link-mixer-probe
   link-full-probe
+  tk4-object-full-probe
 )
 for bin in "${bins[@]}"; do
   if [[ ! -f "$NATIVE_DIR/$bin" ]]; then
@@ -91,6 +92,12 @@ SYS:C/Rename SYS:save/m3-link-sdl.txt SYS:save/m3-link-full-sdl.txt
 SYS:C/Rename SYS:save/m3-link-image.txt SYS:save/m3-link-full-image.txt
 SYS:C/Rename SYS:save/m3-link-mixer.txt SYS:save/m3-link-full-mixer.txt
 
+SYS:C/Which tk4-object-full-probe >SYS:tk4-m3-object-full-which.txt
+SYS:C/Echo "M3_BEFORE_OBJECT_FULL=1" >SYS:tk4-m3-object-full-before.txt
+SYS:tk4-object-full-probe
+SYS:C/Echo $RC >SYS:tk4-m3-object-full-rc.txt
+SYS:C/Echo "M3_AFTER_OBJECT_FULL=1" >SYS:tk4-m3-object-full-after.txt
+
 SYS:C/Which tk4 >SYS:tk4-m3-which.txt
 SYS:C/Echo "M3_BEFORE_TK4=1" >SYS:tk4-m3-before.txt
 SYS:tk4
@@ -127,6 +134,9 @@ link_mixer_ok="$aros_root/save/m3-link-mixer-ok.txt"
 link_full_main="$aros_root/save/m3-link-full-main.txt"
 link_full_image="$aros_root/save/m3-link-full-image.txt"
 link_full_mixer="$aros_root/save/m3-link-full-mixer.txt"
+object_full_before="$aros_root/tk4-m3-object-full-before.txt"
+object_full_after="$aros_root/tk4-m3-object-full-after.txt"
+object_full_main="$aros_root/save/m3-tk4-objects-main.txt"
 before="$aros_root/tk4-m3-before.txt"
 after="$aros_root/tk4-m3-after.txt"
 main_started="$aros_root/save/m3-main-started.txt"
@@ -137,7 +147,7 @@ loop_ok="$aros_root/save/m3-loop-entered.txt"
 
 status=FAIL
 observation=guest_result_missing
-if [[ -f "$started" && -f "$save_writable" && -f "$loader_probe" && -f "$cxx_ctor" && -f "$cxx_main" && -f "$sdl_main" && -f "$sdl_init" && -f "$link_sdl_ok" && -f "$link_image_ok" && -f "$link_mixer_ok" && -f "$link_full_image" && -f "$link_full_mixer" && -f "$main_started" && -f "$splash_ok" && -f "$app_ok" && -f "$menu_ok" && -f "$loop_ok" && ! -f "$after" ]]; then
+if [[ -f "$started" && -f "$save_writable" && -f "$loader_probe" && -f "$cxx_ctor" && -f "$cxx_main" && -f "$sdl_main" && -f "$sdl_init" && -f "$link_sdl_ok" && -f "$link_image_ok" && -f "$link_mixer_ok" && -f "$link_full_image" && -f "$link_full_mixer" && -f "$object_full_main" && -f "$object_full_after" && -f "$main_started" && -f "$splash_ok" && -f "$app_ok" && -f "$menu_ok" && -f "$loop_ok" && ! -f "$after" ]]; then
   status=PASS
   observation=tk4_reached_splash_app_menu_and_game_loop
 elif [[ ! -f "$save_writable" ]]; then
@@ -168,6 +178,10 @@ elif [[ ! -f "$link_full_main" ]]; then
   observation=combined_image_mixer_link_introduced_pre_main_failure
 elif [[ ! -f "$link_full_image" || ! -f "$link_full_mixer" ]]; then
   observation=combined_image_mixer_probe_failed_after_main
+elif [[ -f "$object_full_before" && ! -f "$object_full_main" ]]; then
+  observation=full_tk4_object_set_reproduces_pre_main_failure
+elif [[ -f "$object_full_main" && ! -f "$object_full_after" ]]; then
+  observation=full_tk4_object_probe_reached_main_but_did_not_return
 elif [[ -f "$after" ]]; then
   observation=tk4_returned_to_startup_sequence
 elif [[ -f "$loop_ok" ]]; then
@@ -181,7 +195,7 @@ elif [[ -f "$splash_ok" ]]; then
 elif [[ -f "$main_started" ]]; then
   observation=tk4_entered_main_but_splash_did_not_complete
 elif [[ -f "$before" ]]; then
-  observation=tk4_pre_main_failure_after_all_library_probes_pass
+  observation=tk4_main_cpp_or_final_executable_integration_failure
 fi
 
 {
@@ -209,13 +223,16 @@ fi
   echo "LINK_FULL_MAIN=$([[ -f "$link_full_main" ]] && echo yes || echo no)"
   echo "LINK_FULL_IMAGE=$([[ -f "$link_full_image" ]] && echo yes || echo no)"
   echo "LINK_FULL_MIXER=$([[ -f "$link_full_mixer" ]] && echo yes || echo no)"
+  echo "OBJECT_FULL_BEFORE=$([[ -f "$object_full_before" ]] && echo yes || echo no)"
+  echo "OBJECT_FULL_MAIN=$([[ -f "$object_full_main" ]] && echo yes || echo no)"
+  echo "OBJECT_FULL_RETURNED=$([[ -f "$object_full_after" ]] && echo yes || echo no)"
   echo "MAIN_STARTED=$([[ -f "$main_started" ]] && echo yes || echo no)"
   echo "SPLASH_OK=$([[ -f "$splash_ok" ]] && echo yes || echo no)"
   echo "APP_INIT_OK=$([[ -f "$app_ok" ]] && echo yes || echo no)"
   echo "MENU_MODE_OK=$([[ -f "$menu_ok" ]] && echo yes || echo no)"
   echo "GAME_LOOP_ENTERED=$([[ -f "$loop_ok" ]] && echo yes || echo no)"
   echo "RETURNED=$([[ -f "$after" ]] && echo yes || echo no)"
-  for kind in loader cxx sdl link-sdl link-image link-mixer link-full; do
+  for kind in loader cxx sdl link-sdl link-image link-mixer link-full object-full; do
     rcfile="$aros_root/tk4-m3-${kind}-rc.txt"
     whichfile="$aros_root/tk4-m3-${kind}-which.txt"
     label="$(printf '%s' "$kind" | tr '[:lower:]-' '[:upper:]_')"
