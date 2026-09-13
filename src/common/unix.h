@@ -67,6 +67,14 @@ inline char* strcasestr(const char *haystack, const char *needle)
 	}
 	return 0;
 }
+
+inline char *strset(char *buf,char fill)
+{
+	int len=strlen(buf);
+	for (int a=0;a<len;a++)
+		buf[a]=fill;
+	return buf;
+}
 #else
 inline char* strupr(char *buf)
 {
