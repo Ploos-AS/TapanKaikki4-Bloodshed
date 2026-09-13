@@ -119,7 +119,9 @@ jobs:
                   -DPROBE_MARKER=\"SYS:save/${marker}\" \
                   -DPROBE_LABEL=\"${upper}_MAIN=1\\n\" \
                   -c ../ci/fs-uae/tk4-object-probe.cpp -o "${name}-main.o"
-                $CXX $BASE "${name}-main.o" "types-${name}.o" libtk4-common-notypes.a $LIBS -o "tk4-types-${name}-probe"
+                $CXX $BASE "${name}-main.o" "types-${name}.o" libtk4-common-notypes.a $LIBS \
+                  -Wl,-Map="tk4-types-${name}.map" \
+                  -o "tk4-types-${name}-probe"
               }
 
               build_group_probe core m3-types-core-main.txt TYPES_CORE
@@ -173,9 +175,17 @@ jobs:
                 /opt/amiga/bin/m68k-amigaos-objdump -r "$bin" > "$bin-relocations.txt" || true
               done
 
+              : > tk4-archive-pulls.txt
+              for name in core-body core-effects enemy-a enemy-b enemy-c weapons bullets; do
+                echo "=== ${name} archive pulls ===" >> tk4-archive-pulls.txt
+                grep -o "libtk4-common-notypes.a([^)]*)" "tk4-types-${name}.map" \
+                  | sed "s/.*(//;s/).*//" \
+                  | sort -u >> tk4-archive-pulls.txt || true
+              done
               echo "=== types.cpp relocation count ===" >> tk4-object-isolation-report.txt
               /opt/amiga/bin/m68k-amigaos-objdump -r "$TYPES_OBJ" | grep -c "RELOC" >> tk4-object-isolation-report.txt || true
               cat tk4-object-isolation-report.txt
+              cat tk4-archive-pulls.txt
             '
 
       - name: Run independent AROS object probes
@@ -194,6 +204,8 @@ jobs:
             build-amiga/tk4-common-whole-probe
             build-amiga/types-*.cpp
             build-amiga/tk4-object-isolation-report.txt
+            build-amiga/tk4-archive-pulls.txt
+            build-amiga/tk4-types-*.map
             build-amiga/*-objdump.txt
             build-amiga/*-relocations.txt
             build/fs-uae/aros-m3-bisect/result.txt
