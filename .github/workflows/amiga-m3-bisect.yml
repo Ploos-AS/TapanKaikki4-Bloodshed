@@ -3,6 +3,8 @@ name: Amiga M3 object bisection
 on:
   push:
     branches: [amiga-m3]
+  pull_request:
+    branches: [amiga-m2]
   workflow_dispatch:
 
 permissions:
