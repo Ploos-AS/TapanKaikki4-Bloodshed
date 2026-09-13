@@ -40,13 +40,22 @@ jobs:
                 -name libSDL_image.a -o \
                 -name libSDL_mixer.a \
               \) 2>/dev/null | sort || true
-              cmake -S . -B build-amiga \
-                -DCMAKE_TOOLCHAIN_FILE=cmake/amiga-toolchain.cmake \
+              rm -rf build-amiga
+              mkdir build-amiga
+              cd build-amiga
+              cmake .. \
+                -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake \
                 -DTK4_AMIGA=ON \
-                -DCMAKE_BUILD_TYPE=Release
-              cmake --build build-amiga -- -j2
-              m68k-amigaos-objdump -f build-amiga/tk4 || true
-              file build-amiga/tk4 || true
+                -DCMAKE_BUILD_TYPE=Release \
+                -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL \
+                -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
+                -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL \
+                -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a \
+                -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include \
+                -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              cmake --build . -- -j2
+              m68k-amigaos-objdump -f tk4 || true
+              file tk4 || true
             ' 2>&1 | tee amiga-m1-build.log
           status=${PIPESTATUS[0]}
           echo "docker_status=$status" >> "$GITHUB_OUTPUT"
