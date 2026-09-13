@@ -5,7 +5,7 @@ set(PROJECT_VERSION 4.09)
 option(TK4_AMIGA "Build Tapan Kaikki 4 for classic AmigaOS/m68k" OFF)
 
 if(TK4_AMIGA)
-	add_definitions(-DAMIGA -DDISABLE_GAMMA)
+	add_definitions(-DAMIGA -DDISABLE_GAMMA -DTK4_NO_NETWORK)
 endif()
 
 if(NOT MINGW)
@@ -22,13 +22,15 @@ endif()
 find_package(SDL 1 REQUIRED)
 find_package(SDL_image 1 REQUIRED)
 find_package(SDL_mixer 1 REQUIRED)
-find_package(SDL_net 1 REQUIRED)
+if(NOT TK4_AMIGA)
+	find_package(SDL_net 1 REQUIRED)
+endif()
 include_directories(
 	${SDL_INCLUDE_DIR}
 	${SDL_IMAGE_INCLUDE_DIRS}
-	${SDL_MIXER_INCLUDE_DIRS}
-	${SDL_NET_INCLUDE_DIRS})
+	${SDL_MIXER_INCLUDE_DIRS})
 if(NOT TK4_AMIGA)
+	include_directories(${SDL_NET_INCLUDE_DIRS})
 	include_directories(/usr/local/include) # Temporary workaround for 'X11/Xlib.h not found'
 endif()
 if(APPLE)
@@ -58,13 +60,24 @@ target_link_libraries(tk4-common ${SDL_LIBRARY} ${SDL_IMAGE_LIBRARIES})
 
 # game ###################################################################################
 file(GLOB GAME_SOURCES src/*.h src/*.cpp src/*.rc)
-if(WIN32)
+if(TK4_AMIGA)
+	# M1 uses a deliberately offline network backend while the base game is
+	# brought up. SDL_net will be qualified separately later.
+	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/network.cpp)
+	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/lists_win32.cpp)
+elseif(WIN32)
 	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/lists_unix.cpp)
+	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/network_amiga.cpp)
 else()
 	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/lists_win32.cpp)
+	list(REMOVE_ITEM GAME_SOURCES ${CMAKE_SOURCE_DIR}/src/network_amiga.cpp)
 endif()
 add_executable(tk4 ${GAME_SOURCES})
-target_link_libraries(tk4 tk4-common ${SDL_LIBRARY} ${SDL_IMAGE_LIBRARIES} ${SDL_MIXER_LIBRARIES} ${SDL_NET_LIBRARIES})
+if(TK4_AMIGA)
+	target_link_libraries(tk4 tk4-common ${SDL_LIBRARY} ${SDL_IMAGE_LIBRARIES} ${SDL_MIXER_LIBRARIES})
+else()
+	target_link_libraries(tk4 tk4-common ${SDL_LIBRARY} ${SDL_IMAGE_LIBRARIES} ${SDL_MIXER_LIBRARIES} ${SDL_NET_LIBRARIES})
+endif()
 
 
 # editor #################################################################################
