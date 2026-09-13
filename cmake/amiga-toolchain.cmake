@@ -18,9 +18,12 @@ set(CMAKE_CXX_COMPILER "${AMIGA_TOOLCHAIN_PREFIX}-g++")
 set(CMAKE_AR           "${AMIGA_TOOLCHAIN_PREFIX}-ar")
 set(CMAKE_RANLIB       "${AMIGA_TOOLCHAIN_PREFIX}-ranlib")
 
-# M0 baseline: AmigaOS 3.1-class system, 68020 CPU, no mandatory FPU.
-set(CMAKE_C_FLAGS_INIT   "-m68020 -msoft-float")
-set(CMAKE_CXX_FLAGS_INIT "-m68020 -msoft-float")
+# M1 baseline: AmigaOS 3.1-class system, 68020 CPU, no mandatory FPU.
+# -noixemul matches the common static AmigaPorts/Bebbo SDL build model and
+# avoids introducing an ixemul.library runtime dependency.
+set(CMAKE_C_FLAGS_INIT   "-m68020 -msoft-float -noixemul")
+set(CMAKE_CXX_FLAGS_INIT "-m68020 -msoft-float -noixemul")
+set(CMAKE_EXE_LINKER_FLAGS_INIT "-noixemul")
 
-# Do not try to execute test binaries on the build host.
+# Do not try to execute Amiga test binaries on the build host.
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
