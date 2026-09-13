@@ -46,7 +46,28 @@ inline void ChangeDir(const char* str)
 	chdir(str);
 }
 
-#ifndef AMIGA
+#ifdef AMIGA
+inline char* strcasestr(const char *haystack, const char *needle)
+{
+	if (!*needle)
+		return const_cast<char*>(haystack);
+
+	for (const char *h = haystack; *h; ++h)
+	{
+		const char *hp = h;
+		const char *np = needle;
+		while (*hp && *np &&
+		       tolower((unsigned char)*hp) == tolower((unsigned char)*np))
+		{
+			++hp;
+			++np;
+		}
+		if (!*np)
+			return const_cast<char*>(h);
+	}
+	return 0;
+}
+#else
 inline char* strupr(char *buf)
 {
 	int len=strlen(buf);
