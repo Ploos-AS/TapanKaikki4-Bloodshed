@@ -8,6 +8,9 @@ mkdir -p "$OUT_DIR"
 
 probes=(
   "types-core:tk4-types-core-probe:m3-types-core-main.txt"
+  "types-core-body:tk4-types-core-body-probe:m3-types-core-body-main.txt"
+  "types-core-effects:tk4-types-core-effects-probe:m3-types-core-effects-main.txt"
+  "types-core-enemies:tk4-types-core-enemies-probe:m3-types-core-enemies-main.txt"
   "types-weapons:tk4-types-weapons-probe:m3-types-weapons-main.txt"
   "types-bullets:tk4-types-bullets-probe:m3-types-bullets-main.txt"
   "types:tk4-types-probe:m3-types-main.txt"
