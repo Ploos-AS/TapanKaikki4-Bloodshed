@@ -6,7 +6,9 @@ SYSTEM_DIR="build/fs-uae/aros-system"
 NATIVE_DIR="build-amiga"
 mkdir -p "$OUT_DIR"
 
-for bin in tk4-object-half-a-probe tk4-object-half-b-probe; do
+sizes=(512 1024 1536 1792 2048)
+for kib in "${sizes[@]}"; do
+  bin="tk4-hunk-${kib}-probe"
   [[ -f "$NATIVE_DIR/$bin" ]] || { echo "ERROR: missing $NATIVE_DIR/$bin" >&2; exit 1; }
 done
 
@@ -30,10 +32,10 @@ cleanup_emulator() {
 }
 
 run_probe() {
-  local key="$1"
-  local bin="$2"
-  local marker="$3"
-  local run_dir="$OUT_DIR/$key"
+  local kib="$1"
+  local bin="tk4-hunk-${kib}-probe"
+  local marker="m3-hunk-${kib}-main.txt"
+  local run_dir="$OUT_DIR/$kib"
   local tree="$run_dir/system-tree"
   rm -rf "$run_dir"
   mkdir -p "$run_dir"
@@ -58,14 +60,13 @@ EOF
   local config="$run_dir/aros-guest.fs-uae"
   sed "s|@AROS_ROOT@|$PWD/$root|" ci/fs-uae/aros-guest.fs-uae > "$config"
   set +e
-  timeout --signal=TERM --kill-after=5s 30s xvfb-run -a fs-uae "$config" > "$run_dir/fs-uae.log" 2>&1
+  timeout --signal=TERM --kill-after=5s 25s xvfb-run -a fs-uae "$config" > "$run_dir/fs-uae.log" 2>&1
   local rc=$?
   cleanup_emulator "$config"
   set -e
 
-  local result="$run_dir/result.txt"
   {
-    echo "KEY=$key"
+    echo "SIZE_KIB=$kib"
     echo "BINARY=$bin"
     echo "FS_UAE_EXIT=$rc"
     echo "GUEST_STARTED=$([[ -f "$root/bisect-started.txt" ]] && echo yes || echo no)"
@@ -74,36 +75,38 @@ EOF
     echo "RETURNED=$([[ -f "$root/bisect-after.txt" ]] && echo yes || echo no)"
     [[ -f "$root/bisect-rc.txt" ]] && tr -d '\r' < "$root/bisect-rc.txt" | sed 's/^/GUEST_RC=/'
     [[ -f "$root/bisect-which.txt" ]] && tr -d '\r' < "$root/bisect-which.txt" | sed 's/^/WHICH=/'
-  } | tee "$result"
+  } | tee "$run_dir/result.txt"
 }
 
-run_probe half-a tk4-object-half-a-probe m3-tk4-half-a-main.txt
-run_probe half-b tk4-object-half-b-probe m3-tk4-half-b-main.txt
+for kib in "${sizes[@]}"; do
+  run_probe "$kib"
+done
 
-a_main=no; b_main=no; a_returned=no; b_returned=no
-[[ -f "$OUT_DIR/half-a/system-tree/$rel_root/save/m3-tk4-half-a-main.txt" ]] && a_main=yes
-[[ -f "$OUT_DIR/half-b/system-tree/$rel_root/save/m3-tk4-half-b-main.txt" ]] && b_main=yes
-[[ -f "$OUT_DIR/half-a/system-tree/$rel_root/bisect-after.txt" ]] && a_returned=yes
-[[ -f "$OUT_DIR/half-b/system-tree/$rel_root/bisect-after.txt" ]] && b_returned=yes
-
-observation=both_halves_reached_main
-if [[ "$a_main" == no && "$b_main" == yes ]]; then
-  observation=pre_main_failure_in_half_a
-elif [[ "$a_main" == yes && "$b_main" == no ]]; then
-  observation=pre_main_failure_in_half_b
-elif [[ "$a_main" == no && "$b_main" == no ]]; then
-  observation=both_halves_reproduce_pre_main_failure
-fi
-
+first_failure=none
+all_pass=yes
 {
   echo "STATUS=DIAGNOSTIC"
-  echo "GATE=M3_OBJECT_HALF_BISECTION"
-  echo "OBSERVATION=$observation"
-  echo "HALF_A_MAIN=$a_main"
-  echo "HALF_A_RETURNED=$a_returned"
-  echo "HALF_B_MAIN=$b_main"
-  echo "HALF_B_RETURNED=$b_returned"
+  echo "GATE=M3_HUNK_SIZE_BISECTION"
+  for kib in "${sizes[@]}"; do
+    root="$OUT_DIR/$kib/system-tree/$rel_root"
+    main=no
+    returned=no
+    [[ -f "$root/save/m3-hunk-${kib}-main.txt" ]] && main=yes
+    [[ -f "$root/bisect-after.txt" ]] && returned=yes
+    echo "HUNK_${kib}_MAIN=$main"
+    echo "HUNK_${kib}_RETURNED=$returned"
+    if [[ "$main" != yes || "$returned" != yes ]]; then
+      all_pass=no
+      [[ "$first_failure" == none ]] && first_failure="$kib"
+    fi
+  done
+  echo "FIRST_FAILURE_KIB=$first_failure"
+  if [[ "$all_pass" == yes ]]; then
+    echo "OBSERVATION=hunk_size_up_to_2048kib_reaches_main_and_returns"
+  else
+    echo "OBSERVATION=hunk_size_threshold_reproduces_pre_main_failure"
+  fi
 } | tee "$OUT_DIR/result.txt"
 
-# This is a diagnostic gate: keep M3 red until the real game reaches its runtime gate.
+# Diagnostic workflow: intentional non-green result until M3 root cause is fixed.
 exit 1
