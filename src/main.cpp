@@ -8,17 +8,32 @@
 int abnormal_exit=1;
 
 #ifdef AMIGA
+static bool amiga_m3_write_marker(const char* base, const char* name)
+{
+	char path[192];
+	int n = snprintf(path, sizeof(path), "%s/%s", base, name);
+	if (n <= 0 || n >= (int)sizeof(path))
+		return false;
+
+	FILE* f = fopen(path, "w");
+	if (!f)
+		return false;
+
+	fputs("1\n", f);
+	fclose(f);
+	return true;
+}
+
 static void amiga_m3_marker(const char* name)
 {
-	char path[160];
-	if (snprintf(path, sizeof(path), "PROGDIR:save/%s", name) <= 0)
+	/*
+	 * PROGDIR: is the correct installed-layout target.  AROS/libnix under
+	 * FS-UAE has historically varied in how PROGDIR: is exposed through stdio,
+	 * so the CI runtime gate also accepts the equivalent SYS:save location.
+	 */
+	if (amiga_m3_write_marker("PROGDIR:save", name))
 		return;
-	FILE* f = fopen(path, "w");
-	if (f)
-	{
-		fputs("1\n", f);
-		fclose(f);
-	}
+	(void)amiga_m3_write_marker("SYS:save", name);
 }
 #else
 static void amiga_m3_marker(const char*) {}
@@ -43,8 +58,10 @@ int main(int argc,char *argv[])
 {
 	CGameApp* GGameApp = NULL;
 	atexit(ExitHandler);
-	chdir(getdatapath(".").c_str());
+
+	/* Record entry before touching the data-directory path. */
 	amiga_m3_marker("m3-main-started.txt");
+	chdir(getdatapath(".").c_str());
 
 	try
 	{
