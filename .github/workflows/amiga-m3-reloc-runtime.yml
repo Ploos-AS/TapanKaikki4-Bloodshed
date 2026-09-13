@@ -33,43 +33,44 @@ jobs:
               BASE="-m68020 -msoft-float -noixemul"
 
               cat > reloc-main.c <<"EOF"
-#include <stdio.h>
-#ifndef PROBE_COUNT
-#define PROBE_COUNT 0
-#endif
-#define STR2(x) #x
-#define STR(x) STR2(x)
-int main(void)
-{
-    FILE *f = fopen("SYS:save/m3-reloc-" STR(PROBE_COUNT) ".txt", "w");
-    if (f) {
-        fputs("PASS RELOC32=" STR(PROBE_COUNT) "\n", f);
-        fclose(f);
-    }
-    return 0;
-}
-EOF
+              #include <stdio.h>
+              #ifndef PROBE_COUNT
+              #define PROBE_COUNT 0
+              #endif
+              #define STR2(x) #x
+              #define STR(x) STR2(x)
+              int main(void)
+              {
+                  FILE *f = fopen("SYS:save/m3-reloc-" STR(PROBE_COUNT) ".txt", "w");
+                  if (f) {
+                      fputs("PASS RELOC32=" STR(PROBE_COUNT) "\n", f);
+                      fclose(f);
+                  }
+                  return 0;
+              }
+              EOF
 
               : > relocation-build-report.txt
               for n in 256 512 1024 2048 4096 8192 12000; do
                 cat > "reloc-${n}.s" <<EOF
-        .text
-        .globl  _m3_anchor_${n}
-_m3_anchor_${n}:
-        rts
+              .text
+              .globl  _m3_anchor_${n}
+              _m3_anchor_${n}:
+                  rts
 
-        .data
-        .globl  _m3_reloc_table_${n}
-_m3_reloc_table_${n}:
-        .rept   ${n}
-        .long   _m3_anchor_${n}
-        .endr
-EOF
-                $AS -m68020 "reloc-${n}.s" -o "reloc-${n}.o"
+              .data
+              .globl  _m3_reloc_table_${n}
+              _m3_reloc_table_${n}:
+                  .rept ${n}
+                  .long _m3_anchor_${n}
+                  .endr
+              EOF
+                $AS "reloc-${n}.s" -o "reloc-${n}.o"
                 $CC $BASE -DPROBE_COUNT=$n reloc-main.c "reloc-${n}.o" -o "reloc-${n}-probe"
                 echo "=== reloc-${n}-probe ===" >> relocation-build-report.txt
                 $SIZE -A "reloc-${n}-probe" >> relocation-build-report.txt || true
-                echo "OBJECT_RELOCATIONS=$(($($OBJDUMP -r "reloc-${n}.o" | grep -c RELOC || true)))" >> relocation-build-report.txt
+                reloc_count="$($OBJDUMP -r "reloc-${n}.o" | grep -c RELOC || true)"
+                echo "OBJECT_RELOCATIONS=$reloc_count" >> relocation-build-report.txt
                 $OBJDUMP -f "reloc-${n}-probe" >> relocation-build-report.txt || true
               done
               cat relocation-build-report.txt
@@ -100,48 +101,48 @@ EOF
 
           cp "$startup" "$startup.m3-reloc-original"
           cat > "$startup" <<'EOF'
-SYS:C/Echo "M3_RELOC_GUEST_STARTED=1" >SYS:m3-reloc-started.txt
-SYS:C/Stack 262144
-SYS:C/Echo $RC >SYS:m3-reloc-stack-rc.txt
+          SYS:C/Echo "M3_RELOC_GUEST_STARTED=1" >SYS:m3-reloc-started.txt
+          SYS:C/Stack 262144
+          SYS:C/Echo $RC >SYS:m3-reloc-stack-rc.txt
 
-SYS:C/Echo "BEFORE=256" >SYS:m3-reloc-before-256.txt
-SYS:reloc-256-probe
-SYS:C/Echo $RC >SYS:m3-reloc-rc-256.txt
-SYS:C/Echo "AFTER=256" >SYS:m3-reloc-after-256.txt
+          SYS:C/Echo "BEFORE=256" >SYS:m3-reloc-before-256.txt
+          SYS:reloc-256-probe
+          SYS:C/Echo $RC >SYS:m3-reloc-rc-256.txt
+          SYS:C/Echo "AFTER=256" >SYS:m3-reloc-after-256.txt
 
-SYS:C/Echo "BEFORE=512" >SYS:m3-reloc-before-512.txt
-SYS:reloc-512-probe
-SYS:C/Echo $RC >SYS:m3-reloc-rc-512.txt
-SYS:C/Echo "AFTER=512" >SYS:m3-reloc-after-512.txt
+          SYS:C/Echo "BEFORE=512" >SYS:m3-reloc-before-512.txt
+          SYS:reloc-512-probe
+          SYS:C/Echo $RC >SYS:m3-reloc-rc-512.txt
+          SYS:C/Echo "AFTER=512" >SYS:m3-reloc-after-512.txt
 
-SYS:C/Echo "BEFORE=1024" >SYS:m3-reloc-before-1024.txt
-SYS:reloc-1024-probe
-SYS:C/Echo $RC >SYS:m3-reloc-rc-1024.txt
-SYS:C/Echo "AFTER=1024" >SYS:m3-reloc-after-1024.txt
+          SYS:C/Echo "BEFORE=1024" >SYS:m3-reloc-before-1024.txt
+          SYS:reloc-1024-probe
+          SYS:C/Echo $RC >SYS:m3-reloc-rc-1024.txt
+          SYS:C/Echo "AFTER=1024" >SYS:m3-reloc-after-1024.txt
 
-SYS:C/Echo "BEFORE=2048" >SYS:m3-reloc-before-2048.txt
-SYS:reloc-2048-probe
-SYS:C/Echo $RC >SYS:m3-reloc-rc-2048.txt
-SYS:C/Echo "AFTER=2048" >SYS:m3-reloc-after-2048.txt
+          SYS:C/Echo "BEFORE=2048" >SYS:m3-reloc-before-2048.txt
+          SYS:reloc-2048-probe
+          SYS:C/Echo $RC >SYS:m3-reloc-rc-2048.txt
+          SYS:C/Echo "AFTER=2048" >SYS:m3-reloc-after-2048.txt
 
-SYS:C/Echo "BEFORE=4096" >SYS:m3-reloc-before-4096.txt
-SYS:reloc-4096-probe
-SYS:C/Echo $RC >SYS:m3-reloc-rc-4096.txt
-SYS:C/Echo "AFTER=4096" >SYS:m3-reloc-after-4096.txt
+          SYS:C/Echo "BEFORE=4096" >SYS:m3-reloc-before-4096.txt
+          SYS:reloc-4096-probe
+          SYS:C/Echo $RC >SYS:m3-reloc-rc-4096.txt
+          SYS:C/Echo "AFTER=4096" >SYS:m3-reloc-after-4096.txt
 
-SYS:C/Echo "BEFORE=8192" >SYS:m3-reloc-before-8192.txt
-SYS:reloc-8192-probe
-SYS:C/Echo $RC >SYS:m3-reloc-rc-8192.txt
-SYS:C/Echo "AFTER=8192" >SYS:m3-reloc-after-8192.txt
+          SYS:C/Echo "BEFORE=8192" >SYS:m3-reloc-before-8192.txt
+          SYS:reloc-8192-probe
+          SYS:C/Echo $RC >SYS:m3-reloc-rc-8192.txt
+          SYS:C/Echo "AFTER=8192" >SYS:m3-reloc-after-8192.txt
 
-SYS:C/Echo "BEFORE=12000" >SYS:m3-reloc-before-12000.txt
-SYS:reloc-12000-probe
-SYS:C/Echo $RC >SYS:m3-reloc-rc-12000.txt
-SYS:C/Echo "AFTER=12000" >SYS:m3-reloc-after-12000.txt
+          SYS:C/Echo "BEFORE=12000" >SYS:m3-reloc-before-12000.txt
+          SYS:reloc-12000-probe
+          SYS:C/Echo $RC >SYS:m3-reloc-rc-12000.txt
+          SYS:C/Echo "AFTER=12000" >SYS:m3-reloc-after-12000.txt
 
-SYS:C/Echo "M3_RELOC_COMPLETE=1" >SYS:m3-reloc-complete.txt
-SYS:C/Execute SYS:S/Startup-Sequence.m3-reloc-original
-EOF
+          SYS:C/Echo "M3_RELOC_COMPLETE=1" >SYS:m3-reloc-complete.txt
+          SYS:C/Execute SYS:S/Startup-Sequence.m3-reloc-original
+          EOF
 
           config="$OUT/aros-guest.fs-uae"
           sed "s|@AROS_ROOT@|$PWD/$aros_root|" ci/fs-uae/aros-guest.fs-uae > "$config"
