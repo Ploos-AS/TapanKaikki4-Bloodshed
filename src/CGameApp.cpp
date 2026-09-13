@@ -2,6 +2,7 @@
 #include <time.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "CGameApp.h"
 #include "common/CMath.h"
@@ -18,6 +19,23 @@
 #include "CGUIEffectData.h"
 #include "common/CDrawArea.h"
 #include "common/CEventHandler.h"
+
+#ifdef AMIGA
+static void amiga_m3_marker(const char* name)
+{
+	char path[160];
+	if (snprintf(path, sizeof(path), "PROGDIR:save/%s", name) <= 0)
+		return;
+	FILE* f = fopen(path, "w");
+	if (f)
+	{
+		fputs("1\n", f);
+		fclose(f);
+	}
+}
+#else
+static void amiga_m3_marker(const char*) {}
+#endif
 
 CGameApp::CGameApp(const char* aIcon, const char* aCaption)
 {
@@ -355,9 +373,11 @@ void CGameApp::Run(int argc,char *argv[])
 	
 	iGGI->SetExtraFlags( extra );
 	iGGI->SetMenuMode();
+	amiga_m3_marker("m3-menu-mode-ok.txt");
 	iEventHandler->ResetStack();
 
 	LOG0("Starting game loop\n");
+	amiga_m3_marker("m3-loop-entered.txt");
 	Loop();
 }
 
