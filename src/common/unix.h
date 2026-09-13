@@ -46,6 +46,7 @@ inline void ChangeDir(const char* str)
 	chdir(str);
 }
 
+#ifndef AMIGA
 inline char* strupr(char *buf)
 {
 	int len=strlen(buf);
@@ -78,6 +79,7 @@ inline char *strset(char *buf,char fill)
 	}	
 	return buf;
 }
+#endif
 
 #endif // __unix__ || AMIGA
 
