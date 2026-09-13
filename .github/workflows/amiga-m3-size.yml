@@ -3,6 +3,8 @@ name: Amiga M3 executable size diagnostics
 on:
   push:
     branches: [amiga-m3]
+  pull_request:
+    branches: [amiga-m2]
   workflow_dispatch:
 
 permissions:
@@ -25,6 +27,7 @@ jobs:
             find CMakeFiles/tk4.dir CMakeFiles/tk4-common.dir -type f \( -name "*.obj" -o -name "*.o" \) -print0 | while IFS= read -r -d "" obj; do
               /opt/amiga/bin/m68k-amigaos-size "$obj" | tail -n 1 | awk -v o="$obj" "{print \$1, \$2, \$3, \$4, o}"
             done | sort -k4,4nr > object-size-report.txt
+            echo "text data bss total object"
             head -n 40 object-size-report.txt
           '
       - uses: actions/upload-artifact@v4
