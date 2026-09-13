@@ -42,12 +42,17 @@ SYS:C/Which cxx-init-probe >SYS:tk4-m3-cxx-which.txt
 SYS:C/Which sdl-startup-probe >SYS:tk4-m3-sdl-which.txt
 SYS:C/Which tk4 >SYS:tk4-m3-which.txt
 SYS:C/Echo "M3_SAVE_WRITABLE=1" >SYS:save/m3-guest-save-writable.txt
+SYS:C/Avail >SYS:tk4-m3-avail-before.txt
+SYS:C/Stack 262144
+SYS:C/Echo $RC >SYS:tk4-m3-stack-rc.txt
+SYS:C/Stack >SYS:tk4-m3-stack-value.txt
 SYS:loader-probe
 SYS:C/Echo $RC >SYS:tk4-m3-loader-rc.txt
 SYS:cxx-init-probe
 SYS:C/Echo $RC >SYS:tk4-m3-cxx-rc.txt
 SYS:sdl-startup-probe
 SYS:C/Echo $RC >SYS:tk4-m3-sdl-rc.txt
+SYS:C/Avail >SYS:tk4-m3-avail-pre-tk4.txt
 SYS:C/Echo "M3_BEFORE_TK4=1" >SYS:tk4-m3-before.txt
 SYS:tk4
 SYS:C/Echo $RC >SYS:tk4-m3-rc.txt
@@ -112,7 +117,7 @@ elif [[ -f "$splash_ok" ]]; then
 elif [[ -f "$main_started" ]]; then
   observation=tk4_entered_main_but_splash_did_not_complete
 elif [[ -f "$before" ]]; then
-  observation=tk4_pre_main_failure_after_cxx_and_sdl_probe_pass
+  observation=tk4_pre_main_failure_after_resource_expansion
 fi
 
 {
@@ -120,6 +125,8 @@ fi
   echo "GATE=M3_AROS_PLAYABLE_BASELINE"
   echo "MODEL=A1200"
   echo "KICKSTART=internal"
+  echo "FAST_MEMORY_KB=8192"
+  echo "REQUESTED_STACK=262144"
   echo "FS_UAE_EXIT=$fsuae_rc"
   echo "OBSERVATION=$observation"
   echo "GUEST_STARTED=$([[ -f "$started" ]] && echo yes || echo no)"
@@ -141,6 +148,19 @@ fi
     [[ -f "$rcfile" ]] && tr -d '\r' < "$rcfile" | sed "s/^/${kind^^}_RC=/"
     [[ -f "$whichfile" ]] && tr -d '\r' < "$whichfile" | sed "s/^/${kind^^}_WHICH=/"
   done
+  [[ -f "$aros_root/tk4-m3-stack-rc.txt" ]] && tr -d '\r' < "$aros_root/tk4-m3-stack-rc.txt" | sed 's/^/STACK_RC=/'
+  if [[ -f "$aros_root/tk4-m3-stack-value.txt" ]]; then
+    echo "--- STACK_VALUE ---"
+    tr -d '\r' < "$aros_root/tk4-m3-stack-value.txt"
+  fi
+  if [[ -f "$aros_root/tk4-m3-avail-before.txt" ]]; then
+    echo "--- AVAIL_BEFORE ---"
+    tr -d '\r' < "$aros_root/tk4-m3-avail-before.txt"
+  fi
+  if [[ -f "$aros_root/tk4-m3-avail-pre-tk4.txt" ]]; then
+    echo "--- AVAIL_PRE_TK4 ---"
+    tr -d '\r' < "$aros_root/tk4-m3-avail-pre-tk4.txt"
+  fi
   [[ -f "$aros_root/tk4-m3-which.txt" ]] && tr -d '\r' < "$aros_root/tk4-m3-which.txt" | sed 's/^/GUEST_WHICH=/'
 } | tee "$OUT_DIR/result.txt"
 
