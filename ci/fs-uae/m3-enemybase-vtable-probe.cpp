@@ -93,5 +93,9 @@ int main(void)
 {
     write_marker();
     ProbeEnemy enemy;
+#if PROBE_VARIANT == 4
+    return enemy.Sprite();
+#else
     return enemy.Value();
+#endif
 }
