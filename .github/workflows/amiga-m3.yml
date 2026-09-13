@@ -49,17 +49,36 @@ jobs:
                 -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include \
                 -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
               cmake --build . -- -j2
-              /opt/amiga/bin/m68k-amigaos-gcc -m68020 -msoft-float -noixemul ../ci/fs-uae/loader-probe.c -o loader-probe
-              /opt/amiga/bin/m68k-amigaos-g++ -m68020 -msoft-float -noixemul ../ci/fs-uae/cxx-init-probe.cpp -o cxx-init-probe
-              /opt/amiga/bin/m68k-amigaos-g++ -m68020 -msoft-float -noixemul \
-                -I/opt/amiga/m68k-amigaos/include/SDL \
-                ../ci/fs-uae/sdl-startup-probe.cpp \
-                /opt/amiga/m68k-amigaos/lib/libSDL.a -lpthread \
-                -o sdl-startup-probe
-              /opt/amiga/bin/m68k-amigaos-objdump -f tk4 > tk4-objdump.txt
-              /opt/amiga/bin/m68k-amigaos-objdump -f loader-probe > loader-probe-objdump.txt
-              /opt/amiga/bin/m68k-amigaos-objdump -f cxx-init-probe > cxx-init-probe-objdump.txt
-              /opt/amiga/bin/m68k-amigaos-objdump -f sdl-startup-probe > sdl-startup-probe-objdump.txt
+
+              CC=/opt/amiga/bin/m68k-amigaos-gcc
+              CXX=/opt/amiga/bin/m68k-amigaos-g++
+              BASE="-m68020 -msoft-float -noixemul"
+              SDL_INC="-I/opt/amiga/m68k-amigaos/include/SDL"
+              IMAGE_INC="-I/opt/amiga/SDL_image-pack/include/SDL"
+              MIXER_INC="-I/opt/amiga/SDL_mixer/include"
+              SDL_LIB=/opt/amiga/m68k-amigaos/lib/libSDL.a
+              IMAGE_LIB=/opt/amiga/SDL_image-pack/lib/libSDL_image.a
+              MIXER_LIB=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              JPEG_LIB=/opt/amiga/SDL_image-pack/lib/libjpeg.a
+              PNG_LIB=/opt/amiga/SDL_image-pack/lib/libpng.a
+              Z_LIB=/opt/amiga/zlib-package/lib/libz.a
+
+              $CC $BASE ../ci/fs-uae/loader-probe.c -o loader-probe
+              $CXX $BASE ../ci/fs-uae/cxx-init-probe.cpp -o cxx-init-probe
+              $CXX $BASE $SDL_INC ../ci/fs-uae/sdl-startup-probe.cpp $SDL_LIB -lpthread -o sdl-startup-probe
+
+              $CXX $BASE $SDL_INC ../ci/fs-uae/tk4-link-probe.cpp \
+                $SDL_LIB -lpthread -o link-sdl-probe
+              $CXX $BASE $SDL_INC $IMAGE_INC -DPROBE_IMAGE ../ci/fs-uae/tk4-link-probe.cpp \
+                $IMAGE_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread -o link-image-probe
+              $CXX $BASE $SDL_INC $MIXER_INC -DPROBE_MIXER ../ci/fs-uae/tk4-link-probe.cpp \
+                $MIXER_LIB $SDL_LIB -lpthread -o link-mixer-probe
+              $CXX $BASE $SDL_INC $IMAGE_INC $MIXER_INC -DPROBE_IMAGE -DPROBE_MIXER ../ci/fs-uae/tk4-link-probe.cpp \
+                $IMAGE_LIB $MIXER_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread -o link-full-probe
+
+              for bin in tk4 loader-probe cxx-init-probe sdl-startup-probe link-sdl-probe link-image-probe link-mixer-probe link-full-probe; do
+                /opt/amiga/bin/m68k-amigaos-objdump -f "$bin" > "$bin-objdump.txt"
+              done
 
               : > tk4-static-init-report.txt
               echo "=== TK4 object files with pre-main/static initializers ===" | tee -a tk4-static-init-report.txt
@@ -90,6 +109,7 @@ jobs:
             build-amiga/loader-probe
             build-amiga/cxx-init-probe
             build-amiga/sdl-startup-probe
+            build-amiga/link-*-probe
             build-amiga/*-objdump.txt
             build-amiga/tk4-static-init-report.txt
             build/fs-uae/aros-system/source.txt
