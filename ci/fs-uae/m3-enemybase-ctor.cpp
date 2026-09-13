@@ -14,3 +14,13 @@ CEnemyBase::CEnemyBase()
     iExplosionDeath = 0;
     iSightDistance = 10 * KBlockSpriteSize;
 }
+
+const char* CEnemyBase::Name() const { return NULL; }
+int CEnemyBase::Sprite() const { return 0; }
+float CEnemyBase::Speed() const { return 0.0f; }
+enum TWeapon CEnemyBase::CurrentWeapon() const { return EWeaponFist; }
+int CEnemyBase::Hostile() const { return 0; }
+int CEnemyBase::Energy() const { return 0; }
+int CEnemyBase::Reward() const { return 0; }
+int CEnemyBase::ExplosionDeath() const { return 0; }
+int CEnemyBase::SightDistance() const { return 0; }
