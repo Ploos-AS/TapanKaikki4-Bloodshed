@@ -1,4 +1,18 @@
+#include <stdlib.h>
 #include "CEnemyBase.h"
+
+CEnemyBase::CEnemyBase()
+{
+    iName = NULL;
+    iSprite = 0;
+    iSpeed = 0.0f;
+    iCurrentWeapon = EWeaponFist;
+    iHostile = 0;
+    iEnergy = 0;
+    iReward = 0;
+    iExplosionDeath = 0;
+    iSightDistance = 0;
+}
 
 const char* CEnemyBase::Name() const { return iName; }
 int CEnemyBase::Sprite() const { return iSprite; }
