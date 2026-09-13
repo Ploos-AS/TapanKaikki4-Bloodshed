@@ -1,0 +1,114 @@
+name: Amiga M3 object bisection
+
+on:
+  push:
+    branches: [amiga-m3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  object-half-bisect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+
+      - name: Build TK4 and object-half probes
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            ozzyboshi/bebbo-amiga-gcc:latest \
+            bash -lc '
+              set -eux
+              if ! command -v cmake >/dev/null 2>&1; then
+                apt-get update
+                DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
+              fi
+              rm -rf build-amiga
+              mkdir build-amiga
+              cd build-amiga
+              cmake .. \
+                -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake \
+                -DTK4_AMIGA=ON \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL \
+                -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
+                -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL \
+                -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a \
+                -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include \
+                -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              cmake --build . -- -j2
+
+              CXX=/opt/amiga/bin/m68k-amigaos-g++
+              BASE="-m68020 -msoft-float -noixemul"
+              IMAGE_LIB=/opt/amiga/SDL_image-pack/lib/libSDL_image.a
+              MIXER_LIB=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              SDL_LIB=/opt/amiga/m68k-amigaos/lib/libSDL.a
+              JPEG_LIB=/opt/amiga/SDL_image-pack/lib/libjpeg.a
+              PNG_LIB=/opt/amiga/SDL_image-pack/lib/libpng.a
+              Z_LIB=/opt/amiga/zlib-package/lib/libz.a
+
+              mapfile -t TK4_OBJS < <(find CMakeFiles/tk4.dir -type f -name "*.obj" ! -path "*/main.cpp.obj" | sort)
+              count=${#TK4_OBJS[@]}
+              mid=$(( (count + 1) / 2 ))
+              HALF_A=("${TK4_OBJS[@]:0:mid}")
+              HALF_B=("${TK4_OBJS[@]:mid}")
+
+              {
+                echo "TOTAL=$count"
+                echo "MID=$mid"
+                echo "=== HALF_A ==="
+                printf "%s\n" "${HALF_A[@]}"
+                echo "=== HALF_B ==="
+                printf "%s\n" "${HALF_B[@]}"
+              } | tee tk4-object-bisect-manifest.txt
+
+              $CXX $BASE \
+                -DPROBE_MARKER=\"SYS:save/m3-tk4-half-a-main.txt\" \
+                -DPROBE_LABEL=\"TK4_HALF_A_MAIN=1\\n\" \
+                -c ../ci/fs-uae/tk4-object-probe.cpp -o tk4-half-a-main.o
+              $CXX $BASE \
+                -DPROBE_MARKER=\"SYS:save/m3-tk4-half-b-main.txt\" \
+                -DPROBE_LABEL=\"TK4_HALF_B_MAIN=1\\n\" \
+                -c ../ci/fs-uae/tk4-object-probe.cpp -o tk4-half-b-main.o
+
+              LINK_COMMON=(libtk4-common.a "$IMAGE_LIB" "$MIXER_LIB" "$SDL_LIB" "$JPEG_LIB" "$PNG_LIB" "$Z_LIB" -lpthread)
+              $CXX $BASE -Wl,--unresolved-symbols=ignore-all tk4-half-a-main.o "${HALF_A[@]}" "${LINK_COMMON[@]}" -o tk4-object-half-a-probe
+              $CXX $BASE -Wl,--unresolved-symbols=ignore-all tk4-half-b-main.o "${HALF_B[@]}" "${LINK_COMMON[@]}" -o tk4-object-half-b-probe
+
+              : > tk4-object-bisect-size.txt
+              for bin in tk4 tk4-object-half-a-probe tk4-object-half-b-probe; do
+                echo "=== $bin ===" >> tk4-object-bisect-size.txt
+                stat -c "BYTES=%s" "$bin" >> tk4-object-bisect-size.txt
+                /opt/amiga/bin/m68k-amigaos-size -A "$bin" >> tk4-object-bisect-size.txt || true
+                /opt/amiga/bin/m68k-amigaos-objdump -f "$bin" > "$bin-objdump.txt"
+              done
+              cat tk4-object-bisect-size.txt
+            '
+
+      - name: Run independent AROS half-bisection
+        run: |
+          chmod +x ci/fs-uae/*.sh
+          ci/fs-uae/run-aros-object-bisect.sh
+
+      - name: Upload bisection evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-amiga-m3-object-bisect
+          path: |
+            build-amiga/tk4-object-half-*-probe
+            build-amiga/tk4-object-bisect-manifest.txt
+            build-amiga/tk4-object-bisect-size.txt
+            build-amiga/*-objdump.txt
+            build/fs-uae/aros-m3-bisect/**
+          if-no-files-found: warn
