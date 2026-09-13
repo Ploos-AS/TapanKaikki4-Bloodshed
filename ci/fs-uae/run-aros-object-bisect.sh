@@ -7,6 +7,9 @@ NATIVE_DIR="build-amiga"
 mkdir -p "$OUT_DIR"
 
 probes=(
+  "types-core:tk4-types-core-probe:m3-types-core-main.txt"
+  "types-weapons:tk4-types-weapons-probe:m3-types-weapons-main.txt"
+  "types-bullets:tk4-types-bullets-probe:m3-types-bullets-main.txt"
   "types:tk4-types-probe:m3-types-main.txt"
   "common-whole:tk4-common-whole-probe:m3-common-whole-main.txt"
 )
