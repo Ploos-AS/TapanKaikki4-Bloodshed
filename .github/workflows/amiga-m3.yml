@@ -76,9 +76,20 @@ jobs:
               $CXX $BASE $SDL_INC $IMAGE_INC $MIXER_INC -DPROBE_IMAGE -DPROBE_MIXER ../ci/fs-uae/tk4-link-probe.cpp \
                 $IMAGE_LIB $MIXER_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread -o link-full-probe
 
-              for bin in tk4 loader-probe cxx-init-probe sdl-startup-probe link-sdl-probe link-image-probe link-mixer-probe link-full-probe; do
+              $CXX $BASE -c ../ci/fs-uae/tk4-object-probe.cpp -o tk4-object-probe-main.o
+              mapfile -t TK4_OBJS < <(find CMakeFiles/tk4.dir -type f -name "*.obj" ! -path "*/main.cpp.obj" | sort)
+              $CXX $BASE tk4-object-probe-main.o "${TK4_OBJS[@]}" libtk4-common.a \
+                $IMAGE_LIB $MIXER_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread \
+                -o tk4-object-full-probe
+
+              : > binary-size-report.txt
+              for bin in tk4 loader-probe cxx-init-probe sdl-startup-probe link-sdl-probe link-image-probe link-mixer-probe link-full-probe tk4-object-full-probe; do
                 /opt/amiga/bin/m68k-amigaos-objdump -f "$bin" > "$bin-objdump.txt"
+                echo "=== $bin ===" >> binary-size-report.txt
+                stat -c "BYTES=%s" "$bin" >> binary-size-report.txt
+                /opt/amiga/bin/m68k-amigaos-size -A "$bin" >> binary-size-report.txt || true
               done
+              cat binary-size-report.txt
 
               : > tk4-static-init-report.txt
               echo "=== TK4 object files with pre-main/static initializers ===" | tee -a tk4-static-init-report.txt
@@ -110,7 +121,9 @@ jobs:
             build-amiga/cxx-init-probe
             build-amiga/sdl-startup-probe
             build-amiga/link-*-probe
+            build-amiga/tk4-object-full-probe
             build-amiga/*-objdump.txt
+            build-amiga/binary-size-report.txt
             build-amiga/tk4-static-init-report.txt
             build/fs-uae/aros-system/source.txt
             build/fs-uae/aros-system/archive.sha256
