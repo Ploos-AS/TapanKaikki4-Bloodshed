@@ -80,16 +80,20 @@ else()
 endif()
 add_executable(tk4 ${GAME_SOURCES})
 if(TK4_AMIGA)
-	# Static archives are order-sensitive. SDL_image and SDL_mixer depend on SDL,
-	# while SDL_image also needs the codec archives provided by the Bebbo sysroot.
+	# Static archives are order-sensitive. SDL_image and SDL_mixer depend on SDL.
+	# The Bebbo image keeps the codec archives outside the default m68k library
+	# search path, so M1 names their qualified locations explicitly.
+	set(AMIGA_JPEG_LIBRARY "/opt/amiga/SDL_image-pack/lib/libjpeg.a" CACHE FILEPATH "Amiga libjpeg archive")
+	set(AMIGA_PNG_LIBRARY "/opt/amiga/SDL_image-pack/lib/libpng.a" CACHE FILEPATH "Amiga libpng archive")
+	set(AMIGA_ZLIB_LIBRARY "/opt/amiga/zlib-package/lib/libz.a" CACHE FILEPATH "Amiga zlib archive")
 	target_link_libraries(tk4
 		tk4-common
 		${SDL_IMAGE_LIBRARIES}
 		${SDL_MIXER_LIBRARIES}
 		${SDL_LIBRARY}
-		jpeg
-		png
-		z)
+		${AMIGA_JPEG_LIBRARY}
+		${AMIGA_PNG_LIBRARY}
+		${AMIGA_ZLIB_LIBRARY})
 else()
 	target_link_libraries(tk4 tk4-common ${SDL_LIBRARY} ${SDL_IMAGE_LIBRARIES} ${SDL_MIXER_LIBRARIES} ${SDL_NET_LIBRARIES})
 endif()
