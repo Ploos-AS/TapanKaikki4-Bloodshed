@@ -24,7 +24,11 @@ mkdir -p "$base"
 base_startup="$(find "$base" -type f -ipath '*/s/startup-sequence' -print -quit)"
 [[ -n "$base_startup" ]] || { echo "ERROR: no AROS Startup-Sequence" >&2; exit 1; }
 base_root="$(dirname "$(dirname "$base_startup")")"
-rel_root="${base_root#$base/}"
+if [[ "$base_root" == "$base" ]]; then
+  rel_root=""
+else
+  rel_root="${base_root#"$base"/}"
+fi
 
 cleanup_emulator() {
   local config="$1"
@@ -35,6 +39,15 @@ cleanup_emulator() {
   pkill -KILL -f "Xvfb.*$PWD" 2>/dev/null || true
 }
 
+probe_root() {
+  local tree="$1"
+  if [[ -n "$rel_root" ]]; then
+    printf '%s/%s\n' "$tree" "$rel_root"
+  else
+    printf '%s\n' "$tree"
+  fi
+}
+
 run_probe() {
   local name="$1"
   local bin="$2"
@@ -43,10 +56,12 @@ run_probe() {
   local tree="$run_dir/system-tree"
   rm -rf "$run_dir"
   mkdir -p "$run_dir"
-  cp -a "$base" "$tree"
+  cp -a "$base/." "$tree/"
 
-  local root="$tree/$rel_root"
+  local root
+  root="$(probe_root "$tree")"
   local startup="$root/S/Startup-Sequence"
+  [[ -f "$startup" ]] || { echo "ERROR: missing copied Startup-Sequence at $startup" >&2; exit 1; }
   cp "$NATIVE_DIR/$bin" "$root/$bin"
   mkdir -p "$root/save"
   cp "$startup" "$startup.original"
@@ -95,7 +110,8 @@ done
   echo "GATE=M3_OBJECT_ISOLATION"
   for spec in "${probes[@]}"; do
     IFS=: read -r name bin marker <<<"$spec"
-    root="$OUT_DIR/$name/system-tree/$rel_root"
+    tree="$OUT_DIR/$name/system-tree"
+    root="$(probe_root "$tree")"
     main=no
     returned=no
     [[ -f "$root/save/$marker" ]] && main=yes
