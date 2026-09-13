@@ -40,6 +40,13 @@ jobs:
                 -name libSDL_image.a -o \
                 -name libSDL_mixer.a \
               \) 2>/dev/null | sort || true
+              echo "== JPEG/PNG/zlib candidates =="
+              find /opt /usr/local -type f \( \
+                -iname "*jpeg*.a" -o \
+                -iname "*jpg*.a" -o \
+                -iname "*png*.a" -o \
+                -iname "libz*.a" \
+              \) 2>/dev/null | sort || true
               rm -rf build-amiga
               mkdir build-amiga
               cd build-amiga
