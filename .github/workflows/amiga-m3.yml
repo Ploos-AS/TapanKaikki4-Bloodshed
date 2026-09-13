@@ -49,6 +49,9 @@ jobs:
                 -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include \
                 -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
               cmake --build . -- -j2
+              /opt/amiga/bin/m68k-amigaos-gcc -m68020 -msoft-float -noixemul ../ci/fs-uae/loader-probe.c -o loader-probe
+              /opt/amiga/bin/m68k-amigaos-objdump -f tk4 > tk4-objdump.txt
+              /opt/amiga/bin/m68k-amigaos-objdump -f loader-probe > loader-probe-objdump.txt
             '
 
       - name: Execute playable-baseline gate inside AROS guest
@@ -63,6 +66,9 @@ jobs:
           name: tk4-amiga-m3-playable-baseline
           path: |
             build-amiga/tk4
+            build-amiga/loader-probe
+            build-amiga/tk4-objdump.txt
+            build-amiga/loader-probe-objdump.txt
             build/fs-uae/aros-system/source.txt
             build/fs-uae/aros-system/archive.sha256
             build/fs-uae/aros-m3/result.txt
