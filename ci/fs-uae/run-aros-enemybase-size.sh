@@ -38,9 +38,12 @@ probe_root() {
 }
 
 cleanup_emulator() {
-  pkill -TERM -f "fs-uae" 2>/dev/null || true
+  local config="$1"
+  pkill -TERM -f "fs-uae.*$(printf '%q' "$config")" 2>/dev/null || true
+  pkill -TERM -f "Xvfb.*$PWD" 2>/dev/null || true
   sleep 1
-  pkill -KILL -f "fs-uae" 2>/dev/null || true
+  pkill -KILL -f "fs-uae.*$(printf '%q' "$config")" 2>/dev/null || true
+  pkill -KILL -f "Xvfb.*$PWD" 2>/dev/null || true
 }
 
 run_probe() {
@@ -53,6 +56,7 @@ run_probe() {
   local root
   root="$(probe_root "$tree")"
   local startup="$root/S/Startup-Sequence"
+  [[ -f "$startup" ]] || { echo "ERROR: missing copied Startup-Sequence at $startup" >&2; exit 1; }
   cp "$NATIVE_DIR/$bin" "$root/$bin"
   mkdir -p "$root/save"
   cat > "$startup" <<EOF
@@ -69,7 +73,7 @@ EOF
   set +e
   timeout --signal=TERM --kill-after=5s 25s xvfb-run -a fs-uae "$config" > "$run_dir/fs-uae.log" 2>&1
   local rc=$?
-  cleanup_emulator
+  cleanup_emulator "$config"
   set -e
   local main=no returned=no
   [[ -f "$root/save/$marker" ]] && main=yes
