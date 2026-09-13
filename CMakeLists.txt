@@ -5,7 +5,9 @@ set(PROJECT_VERSION 4.09)
 option(TK4_AMIGA "Build Tapan Kaikki 4 for classic AmigaOS/m68k" OFF)
 
 if(TK4_AMIGA)
-	add_definitions(-DAMIGA -DDISABLE_GAMMA -DTK4_NO_NETWORK)
+	# The classic Amiga build is fully static, so the Windows DLL-style EXPORT
+	# annotation has no meaning here. Define it to nothing for all sources.
+	add_definitions(-DAMIGA -DDISABLE_GAMMA -DTK4_NO_NETWORK -DEXPORT=)
 endif()
 
 if(NOT MINGW)
