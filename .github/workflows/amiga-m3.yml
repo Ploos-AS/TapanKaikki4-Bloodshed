@@ -60,6 +60,19 @@ jobs:
               /opt/amiga/bin/m68k-amigaos-objdump -f loader-probe > loader-probe-objdump.txt
               /opt/amiga/bin/m68k-amigaos-objdump -f cxx-init-probe > cxx-init-probe-objdump.txt
               /opt/amiga/bin/m68k-amigaos-objdump -f sdl-startup-probe > sdl-startup-probe-objdump.txt
+
+              : > tk4-static-init-report.txt
+              echo "=== TK4 object files with pre-main/static initializers ===" | tee -a tk4-static-init-report.txt
+              while IFS= read -r obj; do
+                syms="$(/opt/amiga/bin/m68k-amigaos-nm -C "$obj" 2>/dev/null | grep -E "_GLOBAL__sub_I|__static_initialization_and_destruction_0|\.ctors|\.init_array" || true)"
+                if [ -n "$syms" ]; then
+                  echo "OBJECT=$obj" | tee -a tk4-static-init-report.txt
+                  printf "%s\n" "$syms" | tee -a tk4-static-init-report.txt
+                fi
+              done < <(find CMakeFiles/tk4.dir CMakeFiles/tk4-common.dir -type f \( -name "*.obj" -o -name "*.o" \) | sort)
+              echo "=== Linked executable static-init symbols ===" | tee -a tk4-static-init-report.txt
+              /opt/amiga/bin/m68k-amigaos-nm -C tk4 2>/dev/null | grep -E "_GLOBAL__sub_I|__static_initialization_and_destruction_0" | tee -a tk4-static-init-report.txt || true
+              cat tk4-static-init-report.txt
             '
 
       - name: Execute playable-baseline gate inside AROS guest
@@ -78,6 +91,7 @@ jobs:
             build-amiga/cxx-init-probe
             build-amiga/sdl-startup-probe
             build-amiga/*-objdump.txt
+            build-amiga/tk4-static-init-report.txt
             build/fs-uae/aros-system/source.txt
             build/fs-uae/aros-system/archive.sha256
             build/fs-uae/aros-m3/result.txt
