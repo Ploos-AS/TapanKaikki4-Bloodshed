@@ -54,7 +54,7 @@ jobs:
                   -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake \
                   -DTK4_AMIGA=ON \
                   -DCMAKE_BUILD_TYPE=Release \
-                  -DCMAKE_CXX_FLAGS="$extra" \
+                  -DCMAKE_CXX_FLAGS="$BASE $extra" \
                   -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL \
                   -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
                   -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL \
