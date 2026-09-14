@@ -119,3 +119,5 @@ jobs:
             build/fs-uae/aros-m3-common-bisect/*/result.txt
             build/fs-uae/aros-m3-common-bisect/*/fs-uae.log
           if-no-files-found: warn
+
+# Deliberate no-op diagnostic trigger: run the bisect after introducing this workflow.
