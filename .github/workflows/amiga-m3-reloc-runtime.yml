@@ -32,39 +32,27 @@ jobs:
               SIZE=/opt/amiga/bin/m68k-amigaos-size
               BASE="-m68020 -msoft-float -noixemul"
 
-              cat > reloc-main.c <<"EOF"
-              #include <stdio.h>
-              #ifndef PROBE_COUNT
-              #define PROBE_COUNT 0
-              #endif
-              #define STR2(x) #x
-              #define STR(x) STR2(x)
-              int main(void)
-              {
-                  FILE *f = fopen("SYS:save/m3-reloc-" STR(PROBE_COUNT) ".txt", "w");
-                  if (f) {
-                      fputs("PASS RELOC32=" STR(PROBE_COUNT) "\n", f);
-                      fclose(f);
-                  }
-                  return 0;
-              }
-              EOF
+              printf "%s\n" \
+                "#include <stdio.h>" \
+                "#ifndef PROBE_COUNT" \
+                "#define PROBE_COUNT 0" \
+                "#endif" \
+                "#define STR2(x) #x" \
+                "#define STR(x) STR2(x)" \
+                "int main(void)" \
+                "{" \
+                "    FILE *f = fopen(\"SYS:save/m3-reloc-\" STR(PROBE_COUNT) \".txt\", \"w\");" \
+                "    if (f) {" \
+                "        fputs(\"PASS RELOC32=\" STR(PROBE_COUNT) \"\\n\", f);" \
+                "        fclose(f);" \
+                "    }" \
+                "    return 0;" \
+                "}" > reloc-main.c
 
               : > relocation-build-report.txt
               for n in 256 512 1024 2048 4096 8192 12000; do
-                cat > "reloc-${n}.s" <<EOF
-              .text
-              .globl  _m3_anchor_${n}
-              _m3_anchor_${n}:
-                  rts
-
-              .data
-              .globl  _m3_reloc_table_${n}
-              _m3_reloc_table_${n}:
-                  .rept ${n}
-                  .long _m3_anchor_${n}
-                  .endr
-              EOF
+                printf ".text\n.globl _m3_anchor_%s\n_m3_anchor_%s:\n    rts\n\n.data\n.globl _m3_reloc_table_%s\n_m3_reloc_table_%s:\n    .rept %s\n    .long _m3_anchor_%s\n    .endr\n" \
+                  "$n" "$n" "$n" "$n" "$n" "$n" > "reloc-${n}.s"
                 $AS "reloc-${n}.s" -o "reloc-${n}.o"
                 $CC $BASE -DPROBE_COUNT=$n reloc-main.c "reloc-${n}.o" -o "reloc-${n}-probe"
                 echo "=== reloc-${n}-probe ===" >> relocation-build-report.txt
