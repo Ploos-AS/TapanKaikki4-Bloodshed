@@ -1,0 +1,194 @@
+name: Amiga M3 function/data sections diagnostics
+
+on:
+  push:
+    branches:
+      - amiga-m3
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  function-sections:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+
+      - name: Build baseline and sectioned CSteam/CSpotlight probes
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work \
+            ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+              set -euxo pipefail
+              if ! command -v cmake >/dev/null 2>&1; then
+                apt-get update
+                DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
+              fi
+
+              CXX=/opt/amiga/bin/m68k-amigaos-g++
+              AR=/opt/amiga/bin/m68k-amigaos-ar
+              BASE="-m68020 -msoft-float -noixemul"
+              IMAGE_LIB=/opt/amiga/SDL_image-pack/lib/libSDL_image.a
+              MIXER_LIB=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              SDL_LIB=/opt/amiga/m68k-amigaos/lib/libSDL.a
+              JPEG_LIB=/opt/amiga/SDL_image-pack/lib/libjpeg.a
+              PNG_LIB=/opt/amiga/SDL_image-pack/lib/libpng.a
+              Z_LIB=/opt/amiga/zlib-package/lib/libz.a
+              LIBS="$IMAGE_LIB $MIXER_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread"
+
+              configure_build() {
+                dir="$1"
+                extra="$2"
+                rm -rf "$dir"
+                mkdir "$dir"
+                cd "$dir"
+                cmake .. \
+                  -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake \
+                  -DTK4_AMIGA=ON \
+                  -DCMAKE_BUILD_TYPE=Release \
+                  -DCMAKE_CXX_FLAGS="$extra" \
+                  -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL \
+                  -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
+                  -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL \
+                  -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a \
+                  -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include \
+                  -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+                cmake --build . -- -j2
+                cd ..
+              }
+
+              configure_build build-amiga-sections-base ""
+              configure_build build-amiga-sections-split "-ffunction-sections -fdata-sections"
+
+              mkdir -p build-amiga-sections-out
+              : > build-amiga-sections-out/manifest.tsv
+              : > build-amiga-sections-out/size-report.txt
+
+              build_probe() {
+                variant="$1"
+                builddir="$2"
+                member_pattern="$3"
+                label="$4"
+                member="$($AR t "$builddir/libtk4-common.a" | grep "$member_pattern" | head -n1)"
+                test -n "$member"
+                obj="build-amiga-sections-out/${variant}-${label}.obj"
+                $AR p "$builddir/libtk4-common.a" "$member" > "$obj"
+                test -s "$obj"
+                one="build-amiga-sections-out/lib-${variant}-${label}.a"
+                $AR rcs "$one" "$obj"
+                marker="m3-sections-${variant}-${label}-main.txt"
+                mainobj="build-amiga-sections-out/${variant}-${label}-main.o"
+                bin="build-amiga-sections-out/${variant}-${label}-probe"
+                $CXX $BASE \
+                  -DPROBE_MARKER=\"SYS:save/${marker}\" \
+                  -DPROBE_LABEL=\"SECTIONS_${variant}_${label}_MAIN=1\\n\" \
+                  -c ci/fs-uae/tk4-object-probe.cpp -o "$mainobj"
+                $CXX $BASE "$mainobj" \
+                  -Wl,--whole-archive "$one" -Wl,--no-whole-archive \
+                  "$builddir/libtk4-common.a" $LIBS \
+                  -Wl,-Map="build-amiga-sections-out/${variant}-${label}.map" \
+                  -o "$bin"
+                printf "%s\t%s\t%s\t%s\t%s\n" "$variant" "$label" "$member" "$bin" "$marker" >> build-amiga-sections-out/manifest.tsv
+                stat -c "${variant}_${label}_BYTES=%s" "$bin" >> build-amiga-sections-out/size-report.txt
+              }
+
+              build_probe baseline build-amiga-sections-base CSteam.cpp.obj steam
+              build_probe baseline build-amiga-sections-base CSpotlight.cpp.obj spotlight
+              build_probe split build-amiga-sections-split CSteam.cpp.obj steam
+              build_probe split build-amiga-sections-split CSpotlight.cpp.obj spotlight
+
+              cat build-amiga-sections-out/manifest.tsv
+              cat build-amiga-sections-out/size-report.txt
+            '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-sections-*
+
+      - name: Inspect HUNK layouts
+        run: |
+          set -euo pipefail
+          : > build-amiga-sections-out/hunk-report.txt
+          while IFS=$'\t' read -r variant label member bin marker; do
+            echo "=== ${variant}_${label} MEMBER=${member} ===" | tee -a build-amiga-sections-out/hunk-report.txt
+            python3 tools/amiga_hunk_inspect.py "$bin" | tee -a build-amiga-sections-out/hunk-report.txt
+          done < build-amiga-sections-out/manifest.tsv
+
+      - name: Run probes inside AROS
+        run: |
+          set -euo pipefail
+          OUT=build/fs-uae/aros-m3-function-sections
+          SYSROOT=build/fs-uae/aros-system
+          mkdir -p "$OUT"
+          chmod +x ci/fs-uae/fetch-aros-system.sh
+          iso="$(ci/fs-uae/fetch-aros-system.sh "$SYSROOT" | tail -n 1)"
+          root="$OUT/system-root"
+          rm -rf "$root"
+          mkdir -p "$root"
+          7z x -y -o"$root" "$iso" >/dev/null
+          startup="$(find "$root" -type f -ipath '*/s/startup-sequence' -print -quit)"
+          test -n "$startup"
+          aros_root="$(dirname "$(dirname "$startup")")"
+          mkdir -p "$aros_root/save"
+
+          while IFS=$'\t' read -r variant label member bin marker; do
+            cp "$bin" "$aros_root/${variant}-${label}-probe"
+          done < build-amiga-sections-out/manifest.tsv
+
+          cp "$startup" "$startup.m3-sections-original"
+          {
+            echo 'SYS:C/Echo "M3_FUNCTION_SECTIONS_STARTED=1" >SYS:m3-sections-started.txt'
+            echo 'SYS:C/Stack 262144'
+            while IFS=$'\t' read -r variant label member bin marker; do
+              key="${variant}-${label}"
+              echo "SYS:C/Echo \"BEFORE=${key}\" >SYS:m3-sections-before-${key}.txt"
+              echo "SYS:${key}-probe"
+              echo "SYS:C/Echo \$RC >SYS:m3-sections-rc-${key}.txt"
+              echo "SYS:C/Echo \"AFTER=${key}\" >SYS:m3-sections-after-${key}.txt"
+            done < build-amiga-sections-out/manifest.tsv
+            echo 'SYS:C/Echo "M3_FUNCTION_SECTIONS_COMPLETE=1" >SYS:m3-sections-complete.txt'
+            echo 'SYS:C/Execute SYS:S/Startup-Sequence.m3-sections-original'
+          } > "$startup"
+
+          config="$OUT/aros-guest.fs-uae"
+          sed "s|@AROS_ROOT@|$PWD/$aros_root|" ci/fs-uae/aros-guest.fs-uae > "$config"
+          set +e
+          timeout --signal=TERM --kill-after=5s 55s xvfb-run -a fs-uae "$config" > "$OUT/fs-uae.log" 2>&1
+          fsuae_rc=$?
+          set -e
+
+          : > "$OUT/result.txt"
+          while IFS=$'\t' read -r variant label member bin marker; do
+            key="${variant}-${label}"
+            before=no; main=no; after=no; rc=missing
+            test -f "$aros_root/m3-sections-before-${key}.txt" && before=yes
+            test -f "$aros_root/save/${marker}" && main=yes
+            test -f "$aros_root/m3-sections-after-${key}.txt" && after=yes
+            if test -f "$aros_root/m3-sections-rc-${key}.txt"; then
+              rc="$(tr -d '\r\n' < "$aros_root/m3-sections-rc-${key}.txt")"
+            fi
+            echo "PROBE_${variant}_${label} BEFORE=$before MAIN=$main AFTER=$after RC=$rc" >> "$OUT/result.txt"
+          done < build-amiga-sections-out/manifest.tsv
+          echo "GATE=M3_AROS_FUNCTION_DATA_SECTIONS" >> "$OUT/result.txt"
+          echo "FS_UAE_EXIT=$fsuae_rc" >> "$OUT/result.txt"
+          cat "$OUT/result.txt"
+
+      - name: Upload section diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-function-data-sections
+          path: |
+            build-amiga-sections-out/*-probe
+            build-amiga-sections-out/*.map
+            build-amiga-sections-out/manifest.tsv
+            build-amiga-sections-out/size-report.txt
+            build-amiga-sections-out/hunk-report.txt
+            build/fs-uae/aros-m3-function-sections/result.txt
+            build/fs-uae/aros-m3-function-sections/fs-uae.log
+          if-no-files-found: warn
