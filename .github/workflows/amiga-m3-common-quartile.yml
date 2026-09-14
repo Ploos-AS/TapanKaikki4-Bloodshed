@@ -1,4 +1,4 @@
-name: Amiga M3 common archive quartile isolation
+name: Amiga M3 common archive object isolation
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
 jobs:
   common-quartile:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,7 +21,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
 
-      - name: Build common archive quartile probes
+      - name: Build common archive isolation probes
         run: |
           docker run --rm \
             -v "$PWD:/work" \
@@ -96,6 +96,29 @@ jobs:
 
               for q in 1 2 3 4; do build_quarter "$q"; done
 
+              : > tk4-common-object-manifest.tsv
+              for ((i=0; i<COUNT; i++)); do
+                member="${MEMBERS[$i]}"
+                id="$(printf "%03d" "$i")"
+                subset="common-obj-${id}-members"
+                mkdir "$subset"
+                $AR p libtk4-common.a "$member" > "$subset/$member"
+                (cd "$subset" && $AR rcs "../libtk4-common-obj-${id}.a" "$member")
+
+                marker="m3-common-obj-${id}-main.txt"
+                bin="tk4-common-obj-${id}-probe"
+                $CXX $BASE \
+                  -DPROBE_MARKER=\"SYS:save/${marker}\" \
+                  -DPROBE_LABEL=\"COMMON_OBJ_${id}_MAIN=1\\n\" \
+                  -c ../ci/fs-uae/tk4-object-probe.cpp -o "common-obj-${id}-main.o"
+                $CXX $BASE "common-obj-${id}-main.o" \
+                  -Wl,--whole-archive "libtk4-common-obj-${id}.a" -Wl,--no-whole-archive \
+                  libtk4-common.a $LIBS \
+                  -Wl,-Map="tk4-common-obj-${id}.map" \
+                  -o "$bin"
+                printf "%s\t%s\t%s\t%s\n" "$id" "$member" "$bin" "$marker" >> tk4-common-object-manifest.tsv
+              done
+
               $CXX $BASE \
                 -DPROBE_MARKER=\"SYS:save/m3-common-whole-main.txt\" \
                 -DPROBE_LABEL=\"COMMON_WHOLE_MAIN=1\\n\" \
@@ -105,29 +128,33 @@ jobs:
                 $LIBS -o tk4-common-whole-probe
 
               cat tk4-common-quartiles.txt
+              cat tk4-common-object-manifest.tsv
               for q in 1 2 3 4; do
                 stat -c "Q${q}_BYTES=%s" "tk4-common-q${q}-probe"
               done
               stat -c "WHOLE_BYTES=%s" tk4-common-whole-probe
             '
 
-      - name: Run AROS quartile probes
+      - name: Run AROS common archive probes
         run: |
           chmod +x ci/fs-uae/*.sh
           ci/fs-uae/run-aros-common-quartile.sh
 
-      - name: Upload quartile evidence
+      - name: Upload common archive evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tk4-amiga-m3-common-quartile
           path: |
             build-amiga/tk4-common-q*-probe
+            build-amiga/tk4-common-obj-*-probe
             build-amiga/tk4-common-whole-probe
             build-amiga/tk4-common-members.txt
             build-amiga/tk4-common-quartiles.txt
+            build-amiga/tk4-common-object-manifest.tsv
             build-amiga/common-q*.txt
             build-amiga/tk4-common-q*.map
+            build-amiga/tk4-common-obj-*.map
             build/fs-uae/aros-m3-common-quartile/result.txt
             build/fs-uae/aros-m3-common-quartile/*/result.txt
             build/fs-uae/aros-m3-common-quartile/*/fs-uae.log
