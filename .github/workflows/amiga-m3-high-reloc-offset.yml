@@ -48,20 +48,19 @@ jobs:
               : > build-report.txt
               for k in 384 480 511 512 576 640 704 744; do
                 bytes=$((k * 1024))
-                cat > "high-${k}.s" <<EOF
-.text
-.globl _m3_high_${k}
-_m3_high_${k}:
-    .space ${bytes},0
-    .long _m3_target_${k}
-    rts
-.data
-.globl _m3_target_${k}
-_m3_target_${k}:
-    .long 0
-.bss
-    .space 6612
-EOF
+                printf "%s\n" \
+                  ".text" \
+                  ".globl _m3_high_${k}" \
+                  "_m3_high_${k}:" \
+                  "    .space ${bytes},0" \
+                  "    .long _m3_target_${k}" \
+                  "    rts" \
+                  ".data" \
+                  ".globl _m3_target_${k}" \
+                  "_m3_target_${k}:" \
+                  "    .long 0" \
+                  ".bss" \
+                  "    .space 6612" > "high-${k}.s"
                 $AS "high-${k}.s" -o "high-${k}.o"
                 $CC $BASE -DPROBE_KIB=$k main.c "high-${k}.o" -o "high-${k}-probe"
                 echo "=== high-${k}-probe ===" >> build-report.txt
@@ -69,6 +68,7 @@ EOF
               done
               cat build-report.txt
             '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-high-reloc
 
       - name: Inspect HUNK relocation offsets
         run: |
@@ -76,8 +76,7 @@ EOF
           for k in 384 480 511 512 576 640 704 744; do
             echo "=== OFFSET_KIB=$k ==="
             python3 tools/amiga_hunk_inspect.py "build-amiga-high-reloc/high-${k}-probe"
-          done | tee /tmp/high-reloc-hunk-report.txt
-          cp /tmp/high-reloc-hunk-report.txt build-amiga-high-reloc/hunk-report.txt
+          done | tee build-amiga-high-reloc/hunk-report.txt
 
       - name: Run high-offset probes inside AROS
         run: |
@@ -94,7 +93,9 @@ EOF
           test -n "$startup"
           aros_root="$(dirname "$(dirname "$startup")")"
           mkdir -p "$aros_root/save"
-          for k in 384 480 511 512 576 640 704 744; do cp "build-amiga-high-reloc/high-${k}-probe" "$aros_root/"; done
+          for k in 384 480 511 512 576 640 704 744; do
+            cp "build-amiga-high-reloc/high-${k}-probe" "$aros_root/"
+          done
           cp "$startup" "$startup.m3-high-reloc-original"
           {
             echo 'SYS:C/Echo "M3_HIGH_RELOC_STARTED=1" >SYS:m3-high-reloc-started.txt'
