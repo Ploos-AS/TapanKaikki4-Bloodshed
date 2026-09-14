@@ -123,13 +123,13 @@ jobs:
             mkdir -p "$aros_root/save"
             cp "build-amiga-symbol-strip/$bin" "$aros_root/$bin"
             cp "$startup" "$startup.m3-symbol-original"
-            cat > "$startup" <<EOF
-SYS:C/Echo "BEFORE=${label}-${variant}" >SYS:m3-symbol-before.txt
-SYS:C/Stack 262144
-SYS:${bin}
-SYS:C/Echo \$RC >SYS:m3-symbol-rc.txt
-SYS:C/Echo "AFTER=${label}-${variant}" >SYS:m3-symbol-after.txt
-EOF
+            printf '%s\n' \
+              "SYS:C/Echo \"BEFORE=${label}-${variant}\" >SYS:m3-symbol-before.txt" \
+              "SYS:C/Stack 262144" \
+              "SYS:${bin}" \
+              'SYS:C/Echo $RC >SYS:m3-symbol-rc.txt' \
+              "SYS:C/Echo \"AFTER=${label}-${variant}\" >SYS:m3-symbol-after.txt" \
+              > "$startup"
             config="$OUT/${label}-${variant}.fs-uae"
             sed "s|@AROS_ROOT@|$PWD/$aros_root|" ci/fs-uae/aros-guest.fs-uae > "$config"
             set +e
