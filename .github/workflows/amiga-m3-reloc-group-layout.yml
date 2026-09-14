@@ -89,11 +89,10 @@ jobs:
 
               cp /tmp/steamlike.s .
               $AS steamlike.s -o steamlike.o
-              cat > synthetic-main.c <<"EOF"
-              int main(void) { return 0; }
-              EOF
+              printf "%s\n" "int main(void) { return 0; }" > synthetic-main.c
               $CC $BASE synthetic-main.c steamlike.o -o steamlike-probe
 
+              test -f steamlike-probe
               stat -c "%n BYTES=%s" steam-probe spotlight-probe steamlike-probe
             '
 
