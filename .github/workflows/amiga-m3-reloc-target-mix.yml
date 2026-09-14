@@ -28,6 +28,20 @@ jobs:
           python3 tools/gen_amiga_reloc_target_probe.py --code-kib 744 --code-relocs 10228 --data-relocs 0 --bss-relocs 0 --symbol codeheavy --output build-amiga-target-mix/codeheavy.s
           python3 tools/gen_amiga_reloc_target_probe.py --code-kib 744 --code-relocs 0 --data-relocs 0 --bss-relocs 10228 --symbol bssheavy --output build-amiga-target-mix/bssheavy.s
           python3 tools/gen_amiga_reloc_target_probe.py --code-kib 744 --code-relocs 8780 --data-relocs 232 --bss-relocs 1216 --symbol steamlike --output build-amiga-target-mix/steamlike.s
+          # Match the final CSteam probe's six RELOC32 source->target groups as closely as possible.
+          # The tiny C runtime/main contributes the remaining baseline relocations at link time.
+          python3 tools/gen_amiga_reloc_target_probe.py \
+            --code-kib 744 \
+            --code-relocs 8424 \
+            --data-relocs 182 \
+            --bss-relocs 1290 \
+            --data-source-code-relocs 369 \
+            --data-source-data-relocs 75 \
+            --data-source-bss-relocs 2 \
+            --data-bytes 3760 \
+            --bss-bytes 6548 \
+            --symbol exactsteam \
+            --output build-amiga-target-mix/exactsteam.s
 
       - name: Build relocation target probes
         run: |
@@ -52,7 +66,7 @@ jobs:
                 " return 0;" \
                 "}" > main.c
               : > build-report.txt
-              for name in dataheavy codeheavy bssheavy steamlike; do
+              for name in dataheavy codeheavy bssheavy steamlike exactsteam; do
                 $AS "${name}.s" -o "${name}.o"
                 $CC $BASE -DPROBE_NAME=$name main.c "${name}.o" -o "${name}-probe"
                 echo "=== ${name}-probe ===" >> build-report.txt
@@ -66,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           : > build-amiga-target-mix/hunk-report.txt
-          for name in dataheavy codeheavy bssheavy steamlike; do
+          for name in dataheavy codeheavy bssheavy steamlike exactsteam; do
             echo "=== TARGET_MIX=$name ===" | tee -a build-amiga-target-mix/hunk-report.txt
             python3 tools/amiga_hunk_inspect.py "build-amiga-target-mix/${name}-probe" | tee -a build-amiga-target-mix/hunk-report.txt
           done
@@ -86,14 +100,14 @@ jobs:
           test -n "$startup"
           aros_root="$(dirname "$(dirname "$startup")")"
           mkdir -p "$aros_root/save"
-          for name in dataheavy codeheavy bssheavy steamlike; do
+          for name in dataheavy codeheavy bssheavy steamlike exactsteam; do
             cp "build-amiga-target-mix/${name}-probe" "$aros_root/"
           done
           cp "$startup" "$startup.m3-targetmix-original"
           {
             echo 'SYS:C/Echo "M3_TARGET_MIX_STARTED=1" >SYS:m3-targetmix-started.txt'
             echo 'SYS:C/Stack 262144'
-            for name in dataheavy codeheavy bssheavy steamlike; do
+            for name in dataheavy codeheavy bssheavy steamlike exactsteam; do
               echo "SYS:C/Echo \"BEFORE=$name\" >SYS:m3-targetmix-before-${name}.txt"
               echo "SYS:${name}-probe"
               echo "SYS:C/Echo \$RC >SYS:m3-targetmix-rc-${name}.txt"
@@ -110,7 +124,7 @@ jobs:
           set -e
           : > "$OUT/result.txt"
           first_failure=none
-          for name in dataheavy codeheavy bssheavy steamlike; do
+          for name in dataheavy codeheavy bssheavy steamlike exactsteam; do
             before=no; main=no; after=no; rc=missing
             test -f "$aros_root/m3-targetmix-before-${name}.txt" && before=yes
             test -f "$aros_root/save/m3-targetmix-${name}.txt" && main=yes
