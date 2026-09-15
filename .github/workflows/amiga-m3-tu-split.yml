@@ -1,3 +1,4 @@
+# Registered on the default branch; this branch contains the M3 implementation.
 name: Amiga M3 translation-unit split diagnostics
 
 on:
@@ -71,9 +72,6 @@ jobs:
             cp build-amiga-tu-base/libtk4-common.a build-amiga-tu-out/libtk4-common-nosteam.a
             $AR d build-amiga-tu-out/libtk4-common-nosteam.a "$steam_member" "$steamio_member"
 
-            # Core references ReadFromFile through the FILE* constructor. Supply a
-            # diagnostic-only definition when IO is intentionally absent. IO-only
-            # needs no constructor stubs because no CSteam constructor is referenced.
             cat > build-amiga-tu-out/csteam-core-stub.cpp <<"EOF"
 #include "CSteam.h"
 void CSteam::ReadFromFile(FILE *, int) {}
