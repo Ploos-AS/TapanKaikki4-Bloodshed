@@ -43,10 +43,14 @@ cleanup_emulator() {
 
 run_probe() {
   local cls="$1" variant="$2" bin="$3" marker="$4"
-  local name="${cls}-${variant}"
-  local run_dir="$OUT_DIR/$name" tree="$run_dir/system-tree"
+  local name run_dir tree
+  local root startup config rc main returned
+  name="${cls}-${variant}"
+  run_dir="$OUT_DIR/$name"
+  tree="$run_dir/system-tree"
+  main=no
+  returned=no
   rm -rf "$run_dir"; mkdir -p "$run_dir"; cp -a "$base/." "$tree/"
-  local root startup config rc main=no returned=no
   root="$(probe_root "$tree")"; startup="$root/S/Startup-Sequence"
   cp "$NATIVE_DIR/$bin" "$root/$bin"; mkdir -p "$root/save"; cp "$startup" "$startup.original"
   cat > "$startup" <<EOF
