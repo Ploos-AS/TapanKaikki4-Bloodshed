@@ -1,4 +1,3 @@
-# Registered on the default branch; this branch contains the M3 implementation.
 name: Amiga M3 translation-unit split diagnostics
 
 on:
@@ -11,7 +10,6 @@ on:
       - 'src/common/CSteam.h'
       - 'ci/fs-uae/tk4-object-probe.cpp'
       - 'ci/fs-uae/run-aros-tu-perturbation.sh'
-      - 'tools/amiga_hunk_inspect.py'
   workflow_dispatch:
 
 jobs:
@@ -26,7 +24,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
 
-      - name: Build baseline common objects and layout perturbation probes
+      - name: Build focused physical CSteam split probes
         shell: bash
         run: |
           set -euo pipefail
@@ -48,22 +46,6 @@ jobs:
             INC="-Isrc -Isrc/common -I/opt/amiga/m68k-amigaos/include/SDL -I/opt/amiga/SDL_image-pack/include/SDL -I/opt/amiga/SDL_mixer/include"
             LIBS="/opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a /opt/amiga/m68k-amigaos/lib/libSDL.a /opt/amiga/SDL_image-pack/lib/libjpeg.a /opt/amiga/SDL_image-pack/lib/libpng.a /opt/amiga/zlib-package/lib/libz.a -lpthread"
             : > build-amiga-tu-out/manifest.tsv
-
-            for cls in CSteam CSpotlight; do
-              src="src/common/${cls}.cpp"; low="$(printf "%s" "$cls" | tr A-Z a-z)"
-              $CXX $BASE -O0 $INC -c "$src" -o "build-amiga-tu-out/${low}-o0.obj"
-              member="$($AR t build-amiga-tu-base/libtk4-common.a | grep "${cls}.cpp.obj" | head -n1)"
-              $AR p build-amiga-tu-base/libtk4-common.a "$member" > "build-amiga-tu-out/${low}-release.obj"
-              for variant in release o0; do
-                obj="build-amiga-tu-out/${low}-${variant}.obj"; one="build-amiga-tu-out/lib-${low}-${variant}.a"
-                $AR rcs "$one" "$obj"
-                marker="m3-tu-${low}-${variant}-main.txt"; mainobj="build-amiga-tu-out/${low}-${variant}-main.o"; bin="build-amiga-tu-out/${low}-${variant}-probe"
-                $CXX $BASE -DPROBE_MARKER=\"SYS:save/${marker}\" -DPROBE_LABEL=\"TU_${low}_${variant}_MAIN=1\\n\" -c ci/fs-uae/tk4-object-probe.cpp -o "$mainobj"
-                $CXX $BASE "$mainobj" -Wl,--whole-archive "$one" -Wl,--no-whole-archive build-amiga-tu-base/libtk4-common.a $LIBS -Wl,-Map="build-amiga-tu-out/${low}-${variant}.map" -o "$bin"
-                printf "%s\t%s\t%s\n" "$low" "$variant" "$marker" >> build-amiga-tu-out/manifest.tsv
-              done
-            done
-
             steam_member="$($AR t build-amiga-tu-base/libtk4-common.a | grep "CSteam.cpp.obj" | head -n1)"
             steamio_member="$($AR t build-amiga-tu-base/libtk4-common.a | grep "CSteamIO.cpp.obj" | head -n1)"
             test -n "$steam_member"; test -n "$steamio_member"
@@ -71,14 +53,8 @@ jobs:
             $AR p build-amiga-tu-base/libtk4-common.a "$steamio_member" > build-amiga-tu-out/csteam-io.obj
             cp build-amiga-tu-base/libtk4-common.a build-amiga-tu-out/libtk4-common-nosteam.a
             $AR d build-amiga-tu-out/libtk4-common-nosteam.a "$steam_member" "$steamio_member"
-
-            cat > build-amiga-tu-out/csteam-core-stub.cpp <<"EOF"
-#include "CSteam.h"
-void CSteam::ReadFromFile(FILE *, int) {}
-void CSteam::WriteToFile(FILE *) {}
-EOF
+            printf "%s\n" "#include \"CSteam.h\"" "void CSteam::ReadFromFile(FILE *, int) {}" "void CSteam::WriteToFile(FILE *) {}" > build-amiga-tu-out/csteam-core-stub.cpp
             $CXX $BASE $INC -c build-amiga-tu-out/csteam-core-stub.cpp -o build-amiga-tu-out/csteam-core-stub.obj
-
             for variant in core io together; do
               one="build-amiga-tu-out/lib-csteam-split-${variant}.a"
               case "$variant" in
@@ -86,11 +62,12 @@ EOF
                 io) $AR rcs "$one" build-amiga-tu-out/csteam-io.obj ;;
                 together) $AR rcs "$one" build-amiga-tu-out/csteam-core.obj build-amiga-tu-out/csteam-io.obj ;;
               esac
-              low="csteam-split"; marker="m3-tu-${low}-${variant}-main.txt"
-              mainobj="build-amiga-tu-out/${low}-${variant}-main.o"; bin="build-amiga-tu-out/${low}-${variant}-probe"
-              $CXX $BASE -DPROBE_MARKER=\"SYS:save/${marker}\" -DPROBE_LABEL=\"TU_${low}_${variant}_MAIN=1\\n\" -c ci/fs-uae/tk4-object-probe.cpp -o "$mainobj"
-              $CXX $BASE "$mainobj" -Wl,--whole-archive "$one" -Wl,--no-whole-archive build-amiga-tu-out/libtk4-common-nosteam.a $LIBS -Wl,-Map="build-amiga-tu-out/${low}-${variant}.map" -o "$bin"
-              printf "%s\t%s\t%s\n" "$low" "$variant" "$marker" >> build-amiga-tu-out/manifest.tsv
+              marker="m3-tu-csteam-split-${variant}-main.txt"
+              mainobj="build-amiga-tu-out/csteam-split-${variant}-main.o"
+              bin="build-amiga-tu-out/csteam-split-${variant}-probe"
+              $CXX $BASE -DPROBE_MARKER=\"SYS:save/${marker}\" -DPROBE_LABEL=\"TU_CSTEAM_SPLIT_${variant}_MAIN=1\\n\" -c ci/fs-uae/tk4-object-probe.cpp -o "$mainobj"
+              $CXX $BASE "$mainobj" -Wl,--whole-archive "$one" -Wl,--no-whole-archive build-amiga-tu-out/libtk4-common-nosteam.a $LIBS -Wl,-Map="build-amiga-tu-out/csteam-split-${variant}.map" -o "$bin"
+              printf "csteam-split\t%s\t%s\n" "$variant" "$marker" >> build-amiga-tu-out/manifest.tsv
             done
           '
           sudo chown -R "$(id -u):$(id -g)" build-amiga-tu-*
@@ -98,9 +75,12 @@ EOF
       - name: Inspect HUNK layouts
         run: |
           : > build-amiga-tu-out/hunk-report.txt
-          for f in build-amiga-tu-out/*-probe; do echo "=== $f ===" | tee -a build-amiga-tu-out/hunk-report.txt; python3 tools/amiga_hunk_inspect.py "$f" | tee -a build-amiga-tu-out/hunk-report.txt; done
+          for f in build-amiga-tu-out/*-probe; do
+            echo "=== $f ===" | tee -a build-amiga-tu-out/hunk-report.txt
+            python3 tools/amiga_hunk_inspect.py "$f" | tee -a build-amiga-tu-out/hunk-report.txt
+          done
 
-      - name: Run Release, O0, and physical split probes on AROS
+      - name: Run physical split probes on AROS
         run: |
           chmod +x ci/fs-uae/*.sh
           ci/fs-uae/run-aros-tu-perturbation.sh
