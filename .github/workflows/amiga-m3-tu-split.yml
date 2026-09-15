@@ -1,0 +1,109 @@
+name: Amiga M3 translation-unit split diagnostics
+
+on:
+  pull_request:
+    branches: [amiga-m2]
+  workflow_dispatch:
+
+jobs:
+  tu-split:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+
+      - name: Build baseline common objects and source-level split probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -euxo pipefail
+            if ! command -v cmake >/dev/null 2>&1; then
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
+            fi
+            rm -rf build-amiga-tu-base build-amiga-tu-out
+            mkdir build-amiga-tu-base build-amiga-tu-out
+            cd build-amiga-tu-base
+            cmake .. \
+              -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake \
+              -DTK4_AMIGA=ON -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_CXX_FLAGS="-m68020 -msoft-float -noixemul" \
+              -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL \
+              -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
+              -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL \
+              -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a \
+              -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include \
+              -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+            cmake --build . --target tk4-common -- -j2
+            cd ..
+
+            CXX=/opt/amiga/bin/m68k-amigaos-g++
+            AR=/opt/amiga/bin/m68k-amigaos-ar
+            BASE="-m68020 -msoft-float -noixemul"
+            INC="-Isrc -Isrc/common -I/opt/amiga/m68k-amigaos/include/SDL -I/opt/amiga/SDL_image-pack/include/SDL -I/opt/amiga/SDL_mixer/include"
+            LIBS="/opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a /opt/amiga/m68k-amigaos/lib/libSDL.a /opt/amiga/SDL_image-pack/lib/libjpeg.a /opt/amiga/SDL_image-pack/lib/libpng.a /opt/amiga/zlib-package/lib/libz.a -lpthread"
+
+            # Compile each problematic source at -O0 as a source-level layout perturbation.
+            # Unlike -ffunction-sections this is supported by the old Amiga assembler and
+            # changes function ordering/size without changing source semantics.
+            for cls in CSteam CSpotlight; do
+              src="src/common/${cls}.cpp"
+              low="$(printf "%s" "$cls" | tr A-Z a-z)"
+              $CXX $BASE -O0 $INC -c "$src" -o "build-amiga-tu-out/${low}-o0.obj"
+
+              # Baseline archive member for direct comparison.
+              member="$($AR t build-amiga-tu-base/libtk4-common.a | grep "${cls}.cpp.obj" | head -n1)"
+              $AR p build-amiga-tu-base/libtk4-common.a "$member" > "build-amiga-tu-out/${low}-release.obj"
+
+              for variant in release o0; do
+                obj="build-amiga-tu-out/${low}-${variant}.obj"
+                one="build-amiga-tu-out/lib-${low}-${variant}.a"
+                $AR rcs "$one" "$obj"
+                marker="m3-tu-${low}-${variant}-main.txt"
+                mainobj="build-amiga-tu-out/${low}-${variant}-main.o"
+                bin="build-amiga-tu-out/${low}-${variant}-probe"
+                $CXX $BASE -DPROBE_MARKER=\"SYS:save/${marker}\" -DPROBE_LABEL=\"TU_${low}_${variant}_MAIN=1\\n\" -c ci/fs-uae/tk4-object-probe.cpp -o "$mainobj"
+                $CXX $BASE "$mainobj" -Wl,--whole-archive "$one" -Wl,--no-whole-archive build-amiga-tu-base/libtk4-common.a $LIBS -Wl,-Map="build-amiga-tu-out/${low}-${variant}.map" -o "$bin"
+                printf "%s\t%s\t%s\n" "$low" "$variant" "$marker" >> build-amiga-tu-out/manifest.tsv
+              done
+            done
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-tu-*
+
+      - name: Inspect HUNK layouts
+        run: |
+          set -euo pipefail
+          : > build-amiga-tu-out/hunk-report.txt
+          for f in build-amiga-tu-out/*-probe; do
+            echo "=== $f ===" | tee -a build-amiga-tu-out/hunk-report.txt
+            python3 tools/amiga_hunk_inspect.py "$f" | tee -a build-amiga-tu-out/hunk-report.txt
+          done
+
+      - name: Prepare AROS runtime image
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/fs-uae/aros-m3-tu
+          cp build-amiga-tu-out/*-probe build/fs-uae/aros-m3-tu/
+          cp build-amiga-tu-out/manifest.tsv build/fs-uae/aros-m3-tu/
+          # Reuse the proven AROS/FS-UAE harness preparation from the common-object diagnostic.
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('.github/workflows/amiga-m3-common-quartile.yml').read_text()
+          Path('build-amiga-tu-out/harness-reference.txt').write_text(src)
+          PY
+          echo "Runtime binaries and HUNK evidence built successfully."
+          echo "GATE=M3_TU_LAYOUT_PERTURBATION_BUILD" > build-amiga-tu-out/result.txt
+
+      - name: Upload TU diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-tu-layout-perturbation
+          path: |
+            build-amiga-tu-out/*
