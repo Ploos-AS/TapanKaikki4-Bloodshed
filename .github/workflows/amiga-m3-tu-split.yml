@@ -3,8 +3,14 @@ name: Amiga M3 translation-unit split diagnostics
 on:
   push:
     branches: [amiga-m3]
-  pull_request:
-    branches: [amiga-m2]
+    paths:
+      - '.github/workflows/amiga-m3-tu-split.yml'
+      - 'src/common/CSteam.cpp'
+      - 'src/common/CSteamIO.cpp'
+      - 'src/common/CSteam.h'
+      - 'ci/fs-uae/tk4-object-probe.cpp'
+      - 'ci/fs-uae/run-aros-tu-perturbation.sh'
+      - 'tools/amiga_hunk_inspect.py'
   workflow_dispatch:
 
 jobs:
