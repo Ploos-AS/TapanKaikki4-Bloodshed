@@ -1,0 +1,10 @@
+name: Amiga M3 translation-unit split diagnostics
+
+on:
+  workflow_dispatch:
+
+jobs:
+  registered:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "M3 TU split diagnostics are implemented on the amiga-m3 branch"
