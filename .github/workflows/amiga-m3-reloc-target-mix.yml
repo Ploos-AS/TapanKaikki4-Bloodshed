@@ -1,0 +1,154 @@
+name: Amiga M3 relocation target mix diagnostics
+
+on:
+  push:
+    branches: [amiga-m3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reloc-target-mix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl lhasa p7zip-full unzip
+
+      - name: Generate relocation target matrix
+        run: |
+          set -euo pipefail
+          mkdir -p build-amiga-target-mix
+          python3 tools/gen_amiga_reloc_target_probe.py --code-kib 744 --code-relocs 0 --data-relocs 10228 --bss-relocs 0 --symbol dataheavy --output build-amiga-target-mix/dataheavy.s
+          python3 tools/gen_amiga_reloc_target_probe.py --code-kib 744 --code-relocs 10228 --data-relocs 0 --bss-relocs 0 --symbol codeheavy --output build-amiga-target-mix/codeheavy.s
+          python3 tools/gen_amiga_reloc_target_probe.py --code-kib 744 --code-relocs 0 --data-relocs 0 --bss-relocs 10228 --symbol bssheavy --output build-amiga-target-mix/bssheavy.s
+          python3 tools/gen_amiga_reloc_target_probe.py --code-kib 744 --code-relocs 8780 --data-relocs 232 --bss-relocs 1216 --symbol steamlike --output build-amiga-target-mix/steamlike.s
+          # Match the final CSteam probe's six RELOC32 source->target groups as closely as possible.
+          # The tiny C runtime/main contributes the remaining baseline relocations at link time.
+          python3 tools/gen_amiga_reloc_target_probe.py \
+            --code-kib 744 \
+            --code-relocs 8424 \
+            --data-relocs 182 \
+            --bss-relocs 1290 \
+            --data-source-code-relocs 369 \
+            --data-source-data-relocs 75 \
+            --data-source-bss-relocs 2 \
+            --data-bytes 3760 \
+            --bss-bytes 6548 \
+            --symbol exactsteam \
+            --output build-amiga-target-mix/exactsteam.s
+
+      - name: Build relocation target probes
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work/build-amiga-target-mix \
+            ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+              set -eux
+              CC=/opt/amiga/bin/m68k-amigaos-gcc
+              AS=/opt/amiga/bin/m68k-amigaos-as
+              SIZE=/opt/amiga/bin/m68k-amigaos-size
+              BASE="-m68020 -msoft-float -noixemul"
+              printf "%s\n" \
+                "#include <stdio.h>" \
+                "#ifndef PROBE_NAME" \
+                "#define PROBE_NAME unknown" \
+                "#endif" \
+                "#define STR2(x) #x" \
+                "#define STR(x) STR2(x)" \
+                "int main(void)" \
+                "{" \
+                " FILE *f=fopen(\"SYS:save/m3-targetmix-\" STR(PROBE_NAME) \".txt\",\"w\");" \
+                " if(f){fputs(\"PASS PROBE=\" STR(PROBE_NAME) \"\\n\",f);fclose(f);}" \
+                " return 0;" \
+                "}" > main.c
+              : > build-report.txt
+              for name in dataheavy codeheavy bssheavy steamlike exactsteam; do
+                $AS "${name}.s" -o "${name}.o"
+                $CC $BASE -DPROBE_NAME=$name main.c "${name}.o" -o "${name}-probe"
+                echo "=== ${name}-probe ===" >> build-report.txt
+                $SIZE -A "${name}-probe" >> build-report.txt || true
+              done
+              cat build-report.txt
+            '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-target-mix
+
+      - name: Inspect HUNK target mix
+        run: |
+          set -euo pipefail
+          : > build-amiga-target-mix/hunk-report.txt
+          for name in dataheavy codeheavy bssheavy steamlike exactsteam; do
+            echo "=== TARGET_MIX=$name ===" | tee -a build-amiga-target-mix/hunk-report.txt
+            python3 tools/amiga_hunk_inspect.py "build-amiga-target-mix/${name}-probe" | tee -a build-amiga-target-mix/hunk-report.txt
+          done
+
+      - name: Run relocation target matrix inside AROS
+        run: |
+          set -euo pipefail
+          OUT=build/fs-uae/aros-target-mix
+          SYSROOT=build/fs-uae/aros-system
+          mkdir -p "$OUT"
+          chmod +x ci/fs-uae/fetch-aros-system.sh
+          iso="$(ci/fs-uae/fetch-aros-system.sh "$SYSROOT" | tail -n 1)"
+          root="$OUT/system-root"
+          rm -rf "$root" && mkdir -p "$root"
+          7z x -y -o"$root" "$iso" >/dev/null
+          startup="$(find "$root" -type f -ipath '*/s/startup-sequence' -print -quit)"
+          test -n "$startup"
+          aros_root="$(dirname "$(dirname "$startup")")"
+          mkdir -p "$aros_root/save"
+          for name in dataheavy codeheavy bssheavy steamlike exactsteam; do
+            cp "build-amiga-target-mix/${name}-probe" "$aros_root/"
+          done
+          cp "$startup" "$startup.m3-targetmix-original"
+          {
+            echo 'SYS:C/Echo "M3_TARGET_MIX_STARTED=1" >SYS:m3-targetmix-started.txt'
+            echo 'SYS:C/Stack 262144'
+            for name in dataheavy codeheavy bssheavy steamlike exactsteam; do
+              echo "SYS:C/Echo \"BEFORE=$name\" >SYS:m3-targetmix-before-${name}.txt"
+              echo "SYS:${name}-probe"
+              echo "SYS:C/Echo \$RC >SYS:m3-targetmix-rc-${name}.txt"
+              echo "SYS:C/Echo \"AFTER=$name\" >SYS:m3-targetmix-after-${name}.txt"
+            done
+            echo 'SYS:C/Echo "M3_TARGET_MIX_COMPLETE=1" >SYS:m3-targetmix-complete.txt'
+            echo 'SYS:C/Execute SYS:S/Startup-Sequence.m3-targetmix-original'
+          } > "$startup"
+          config="$OUT/aros-guest.fs-uae"
+          sed "s|@AROS_ROOT@|$PWD/$aros_root|" ci/fs-uae/aros-guest.fs-uae > "$config"
+          set +e
+          timeout --signal=TERM --kill-after=5s 55s xvfb-run -a fs-uae "$config" > "$OUT/fs-uae.log" 2>&1
+          fsuae_rc=$?
+          set -e
+          : > "$OUT/result.txt"
+          first_failure=none
+          for name in dataheavy codeheavy bssheavy steamlike exactsteam; do
+            before=no; main=no; after=no; rc=missing
+            test -f "$aros_root/m3-targetmix-before-${name}.txt" && before=yes
+            test -f "$aros_root/save/m3-targetmix-${name}.txt" && main=yes
+            test -f "$aros_root/m3-targetmix-after-${name}.txt" && after=yes
+            test -f "$aros_root/m3-targetmix-rc-${name}.txt" && rc="$(tr -d '\r\n' < "$aros_root/m3-targetmix-rc-${name}.txt")"
+            echo "TARGET_${name} BEFORE=$before MAIN=$main AFTER=$after RC=$rc" >> "$OUT/result.txt"
+            if [[ "$main" != yes || "$after" != yes || "$rc" != 0 ]]; then
+              [[ "$first_failure" == none ]] && first_failure="$name"
+            fi
+          done
+          echo "GATE=M3_AROS_RELOCATION_TARGET_MIX" >> "$OUT/result.txt"
+          echo "FS_UAE_EXIT=$fsuae_rc" >> "$OUT/result.txt"
+          echo "FIRST_FAILURE=$first_failure" >> "$OUT/result.txt"
+          cat "$OUT/result.txt"
+
+      - name: Upload relocation target diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-relocation-target-mix
+          path: |
+            build-amiga-target-mix/*-probe
+            build-amiga-target-mix/build-report.txt
+            build-amiga-target-mix/hunk-report.txt
+            build/fs-uae/aros-target-mix/result.txt
+            build/fs-uae/aros-target-mix/fs-uae.log
+          if-no-files-found: warn

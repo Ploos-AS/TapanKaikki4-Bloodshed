@@ -1,0 +1,159 @@
+name: Amiga M3 high relocation offset diagnostics
+
+on:
+  push:
+    branches:
+      - amiga-m3
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  high-reloc-offset:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl lhasa p7zip-full unzip
+
+      - name: Build controlled high-offset RELOC32 probes
+        run: |
+          set -euo pipefail
+          mkdir -p build-amiga-high-reloc
+          docker run --rm -v "$PWD:/work" -w /work/build-amiga-high-reloc \
+            ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+              set -eux
+              CC=/opt/amiga/bin/m68k-amigaos-gcc
+              AS=/opt/amiga/bin/m68k-amigaos-as
+              SIZE=/opt/amiga/bin/m68k-amigaos-size
+              BASE="-m68020 -msoft-float -noixemul"
+
+              printf "%s\n" \
+                "#include <stdio.h>" \
+                "#ifndef PROBE_KIB" \
+                "#define PROBE_KIB 0" \
+                "#endif" \
+                "#define STR2(x) #x" \
+                "#define STR(x) STR2(x)" \
+                "int main(void)" \
+                "{" \
+                " FILE *f=fopen(\"SYS:save/m3-high-reloc-\" STR(PROBE_KIB) \".txt\",\"w\");" \
+                " if(f){fputs(\"PASS OFFSET_KIB=\" STR(PROBE_KIB) \"\\n\",f);fclose(f);}" \
+                " return 0;" \
+                "}" > main.c
+
+              : > build-report.txt
+              for k in 384 480 511 512 576 640 704 744; do
+                bytes=$((k * 1024))
+                {
+                  echo ".text"
+                  echo ".globl _m3_high_${k}"
+                  echo "_m3_high_${k}:"
+                  echo "    .space ${bytes},0"
+                  echo "    .long _m3_target_${k}"
+                  echo "    rts"
+                  echo ".data"
+                  echo ".globl _m3_target_${k}"
+                  echo "_m3_target_${k}:"
+                  echo "    .long 0"
+                  echo ".bss"
+                  echo "    .space 6612"
+                } > "high-${k}.s"
+                $AS "high-${k}.s" -o "high-${k}.o"
+                $CC $BASE -DPROBE_KIB=$k main.c "high-${k}.o" -o "high-${k}-probe"
+                echo "=== high-${k}-probe ===" >> build-report.txt
+                $SIZE -A "high-${k}-probe" >> build-report.txt || true
+              done
+              cat build-report.txt
+            '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-high-reloc
+
+      - name: Inspect HUNK relocation offsets
+        run: |
+          set -euo pipefail
+          : > build-amiga-high-reloc/hunk-report.txt
+          for k in 384 480 511 512 576 640 704 744; do
+            echo "=== OFFSET_KIB=$k ===" | tee -a build-amiga-high-reloc/hunk-report.txt
+            python3 tools/amiga_hunk_inspect.py "build-amiga-high-reloc/high-${k}-probe" | tee -a build-amiga-high-reloc/hunk-report.txt
+          done
+
+      - name: Run high-offset probes inside AROS
+        run: |
+          set -euo pipefail
+          OUT=build/fs-uae/aros-high-reloc
+          SYSROOT=build/fs-uae/aros-system
+          mkdir -p "$OUT"
+          chmod +x ci/fs-uae/fetch-aros-system.sh
+          iso="$(ci/fs-uae/fetch-aros-system.sh "$SYSROOT" | tail -n 1)"
+          root="$OUT/system-root"
+          rm -rf "$root"
+          mkdir -p "$root"
+          7z x -y -o"$root" "$iso" >/dev/null
+          startup="$(find "$root" -type f -ipath '*/s/startup-sequence' -print -quit)"
+          test -n "$startup"
+          aros_root="$(dirname "$(dirname "$startup")")"
+          mkdir -p "$aros_root/save"
+          for k in 384 480 511 512 576 640 704 744; do
+            cp "build-amiga-high-reloc/high-${k}-probe" "$aros_root/"
+          done
+          cp "$startup" "$startup.m3-high-reloc-original"
+          {
+            echo 'SYS:C/Echo "M3_HIGH_RELOC_STARTED=1" >SYS:m3-high-reloc-started.txt'
+            echo 'SYS:C/Stack 262144'
+            for k in 384 480 511 512 576 640 704 744; do
+              echo "SYS:C/Echo \"BEFORE=$k\" >SYS:m3-high-reloc-before-${k}.txt"
+              echo "SYS:high-${k}-probe"
+              echo "SYS:C/Echo \$RC >SYS:m3-high-reloc-rc-${k}.txt"
+              echo "SYS:C/Echo \"AFTER=$k\" >SYS:m3-high-reloc-after-${k}.txt"
+            done
+            echo 'SYS:C/Echo "M3_HIGH_RELOC_COMPLETE=1" >SYS:m3-high-reloc-complete.txt'
+            echo 'SYS:C/Execute SYS:S/Startup-Sequence.m3-high-reloc-original'
+          } > "$startup"
+          config="$OUT/aros-guest.fs-uae"
+          sed "s|@AROS_ROOT@|$PWD/$aros_root|" ci/fs-uae/aros-guest.fs-uae > "$config"
+          set +e
+          timeout --signal=TERM --kill-after=5s 55s xvfb-run -a fs-uae "$config" > "$OUT/fs-uae.log" 2>&1
+          fsuae_rc=$?
+          set -e
+          : > "$OUT/result.txt"
+          first_failure=none
+          for k in 384 480 511 512 576 640 704 744; do
+            before=no
+            main=no
+            after=no
+            rc=missing
+            test -f "$aros_root/m3-high-reloc-before-${k}.txt" && before=yes
+            test -f "$aros_root/save/m3-high-reloc-${k}.txt" && main=yes
+            test -f "$aros_root/m3-high-reloc-after-${k}.txt" && after=yes
+            if test -f "$aros_root/m3-high-reloc-rc-${k}.txt"; then
+              rc="$(tr -d '\r\n' < "$aros_root/m3-high-reloc-rc-${k}.txt")"
+            fi
+            echo "OFFSET_${k}_KIB BEFORE=$before MAIN=$main AFTER=$after RC=$rc" >> "$OUT/result.txt"
+            if test "$main" != yes || test "$after" != yes || test "$rc" != 0; then
+              if test "$first_failure" = none; then
+                first_failure="$k"
+              fi
+            fi
+          done
+          echo "GATE=M3_AROS_HIGH_RELOCATION_OFFSET" >> "$OUT/result.txt"
+          echo "FS_UAE_EXIT=$fsuae_rc" >> "$OUT/result.txt"
+          echo "FIRST_FAILURE_KIB=$first_failure" >> "$OUT/result.txt"
+          cat "$OUT/result.txt"
+
+      - name: Upload high relocation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-high-relocation-offset
+          path: |
+            build-amiga-high-reloc/*-probe
+            build-amiga-high-reloc/build-report.txt
+            build-amiga-high-reloc/hunk-report.txt
+            build/fs-uae/aros-high-reloc/result.txt
+            build/fs-uae/aros-high-reloc/fs-uae.log
+          if-no-files-found: warn

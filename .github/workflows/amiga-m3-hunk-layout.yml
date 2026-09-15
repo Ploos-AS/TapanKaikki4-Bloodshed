@@ -1,0 +1,145 @@
+name: Amiga M3 raw HUNK layout diagnostics
+
+on:
+  push:
+    branches: [amiga-m3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hunk-layout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build PASS and FAIL object probes
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            ozzyboshi/bebbo-amiga-gcc:latest \
+            bash -lc '
+              set -euxo pipefail
+              if ! command -v cmake >/dev/null 2>&1; then
+                apt-get update
+                DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
+              fi
+              rm -rf build-amiga-hunk-layout
+              mkdir build-amiga-hunk-layout
+              cd build-amiga-hunk-layout
+              cmake .. \
+                -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake \
+                -DTK4_AMIGA=ON \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL \
+                -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
+                -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL \
+                -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a \
+                -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include \
+                -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              cmake --build . -- -j2
+
+              CXX=/opt/amiga/bin/m68k-amigaos-g++
+              AR=/opt/amiga/bin/m68k-amigaos-ar
+              BASE="-m68020 -msoft-float -noixemul"
+              IMAGE_LIB=/opt/amiga/SDL_image-pack/lib/libSDL_image.a
+              MIXER_LIB=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              SDL_LIB=/opt/amiga/m68k-amigaos/lib/libSDL.a
+              JPEG_LIB=/opt/amiga/SDL_image-pack/lib/libjpeg.a
+              PNG_LIB=/opt/amiga/SDL_image-pack/lib/libpng.a
+              Z_LIB=/opt/amiga/zlib-package/lib/libz.a
+              LIBS="$IMAGE_LIB $MIXER_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread"
+
+              : > hunk-layout-manifest.tsv
+              for spec in \
+                "CColorTable.cpp.obj:colortable:PASS" \
+                "CSteam.cpp.obj:steam:FAIL" \
+                "CSpotlight.cpp.obj:spotlight:FAIL"; do
+                member="${spec%%:*}"
+                rest="${spec#*:}"
+                label="${rest%%:*}"
+                expected="${rest##*:}"
+                dir="${label}-members"
+                mkdir "$dir"
+                $AR p libtk4-common.a "$member" > "$dir/$member"
+                (cd "$dir" && $AR rcs "../lib-${label}.a" "$member")
+                marker="m3-hunk-${label}-main.txt"
+                $CXX $BASE \
+                  -DPROBE_MARKER=\"SYS:save/${marker}\" \
+                  -DPROBE_LABEL=\"HUNK_${label}_MAIN=1\\n\" \
+                  -c ../ci/fs-uae/tk4-object-probe.cpp -o "${label}-main.o"
+                $CXX $BASE "${label}-main.o" \
+                  -Wl,--whole-archive "lib-${label}.a" -Wl,--no-whole-archive \
+                  libtk4-common.a $LIBS \
+                  -Wl,-Map="${label}.map" \
+                  -o "${label}-probe"
+                printf "%s\t%s\t%s\t%s\n" "$label" "$expected" "${label}-probe" "$member" >> hunk-layout-manifest.tsv
+              done
+              cat hunk-layout-manifest.tsv
+            '
+
+      - name: Parse raw Amiga HUNK structure
+        run: |
+          set -euo pipefail
+          python3 tools/amiga_hunk_inspect.py \
+            build-amiga-hunk-layout/colortable-probe \
+            build-amiga-hunk-layout/steam-probe \
+            build-amiga-hunk-layout/spotlight-probe \
+            | tee build-amiga-hunk-layout/hunk-layout-report.txt
+
+          python3 - <<'PY' | tee build-amiga-hunk-layout/hunk-layout-summary.txt
+          from pathlib import Path
+          import importlib.util
+
+          spec = importlib.util.spec_from_file_location("hunk", "tools/amiga_hunk_inspect.py")
+          mod = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+
+          rows = []
+          for label, expected in (("colortable", "PASS"), ("steam", "FAIL"), ("spotlight", "FAIL")):
+              p = Path(f"build-amiga-hunk-layout/{label}-probe")
+              x = mod.parse(p)
+              offs = [r[3] for r in x["relocs"]]
+              rows.append({
+                  "label": label,
+                  "expected": expected,
+                  "code": max(x["code_sizes"] or [0]),
+                  "relocs": len(offs),
+                  "max_reloc": max(offs or [-1]),
+                  "ge512": sum(o >= 0x80000 for o in offs),
+                  "ge640": sum(o >= 0xA0000 for o in offs),
+                  "ge704": sum(o >= 0xB0000 for o in offs),
+                  "symbols": x["symbols"],
+                  "debug": x["debug_bytes"],
+                  "sequence": " ".join(x["sequence"]),
+              })
+
+          print("GATE=M3_RAW_HUNK_LAYOUT")
+          for r in rows:
+              print("{label} EXPECTED={expected} CODE={code} RELOCS={relocs} MAX_RELOC={max_reloc} RELOC_GE_512K={ge512} RELOC_GE_640K={ge640} RELOC_GE_704K={ge704} SYMBOLS={symbols} DEBUG={debug}".format(**r))
+          seqs = {r["sequence"] for r in rows}
+          print(f"SAME_HUNK_SEQUENCE={'yes' if len(seqs) == 1 else 'no'}")
+          pass_row = rows[0]
+          fail_rows = rows[1:]
+          if pass_row["ge512"] == 0 and all(r["ge512"] > 0 for r in fail_rows):
+              print("HYPOTHESIS=HIGH_RELOCATION_OFFSET_CORRELATES")
+          else:
+              print("HYPOTHESIS=HIGH_RELOCATION_OFFSET_NOT_CLEANLY_CORRELATED")
+          PY
+
+      - name: Upload raw HUNK diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-raw-hunk-layout
+          path: |
+            build-amiga-hunk-layout/*-probe
+            build-amiga-hunk-layout/*.map
+            build-amiga-hunk-layout/hunk-layout-manifest.tsv
+            build-amiga-hunk-layout/hunk-layout-report.txt
+            build-amiga-hunk-layout/hunk-layout-summary.txt
+          if-no-files-found: warn

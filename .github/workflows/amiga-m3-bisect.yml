@@ -1,0 +1,214 @@
+name: Amiga M3 object isolation
+
+on:
+  push:
+    branches: [amiga-m3]
+  pull_request:
+    branches: [amiga-m2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  object-isolation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+
+      - name: Build TK4 object isolation probes
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            ozzyboshi/bebbo-amiga-gcc:latest \
+            bash -lc '
+              set -eux
+              if ! command -v cmake >/dev/null 2>&1; then
+                apt-get update
+                DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
+              fi
+              rm -rf build-amiga
+              mkdir build-amiga
+              cd build-amiga
+              cmake .. \
+                -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake \
+                -DTK4_AMIGA=ON \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL \
+                -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
+                -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL \
+                -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a \
+                -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include \
+                -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              cmake --build . -- -j2
+
+              CXX=/opt/amiga/bin/m68k-amigaos-g++
+              AR=/opt/amiga/bin/m68k-amigaos-ar
+              BASE="-m68020 -msoft-float -noixemul"
+              INCLUDES="-I../src/common -I../src -I/opt/amiga/m68k-amigaos/include/SDL"
+              SDL_LIB=/opt/amiga/m68k-amigaos/lib/libSDL.a
+              IMAGE_LIB=/opt/amiga/SDL_image-pack/lib/libSDL_image.a
+              MIXER_LIB=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              JPEG_LIB=/opt/amiga/SDL_image-pack/lib/libjpeg.a
+              PNG_LIB=/opt/amiga/SDL_image-pack/lib/libpng.a
+              Z_LIB=/opt/amiga/zlib-package/lib/libz.a
+              LIBS="$IMAGE_LIB $MIXER_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread"
+
+              TYPES_OBJ="CMakeFiles/tk4-common.dir/src/common/types.cpp.obj"
+              test -f "$TYPES_OBJ"
+
+              cp libtk4-common.a libtk4-common-notypes.a
+              TYPES_MEMBER="$($AR t libtk4-common-notypes.a | grep "types.cpp.obj$" | head -n 1)"
+              test -n "$TYPES_MEMBER"
+              $AR d libtk4-common-notypes.a "$TYPES_MEMBER"
+              ! $AR t libtk4-common-notypes.a | grep -q "types.cpp.obj$"
+
+              EFFECT_STAR="$(grep -n "^\\* CEffectBlood" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
+              ENEMY_STAR="$(grep -n "^\\* CEnemyPistolboy" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
+              CIVILIAN_STAR="$(grep -n "^\\* CEnemyCivilian" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
+              PUNISHER_STAR="$(grep -n "^\\* CEnemyPunisher" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
+              WEAPON_STAR="$(grep -n "^\\* CWeaponFist" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
+              BULLET_STAR="$(grep -n "^\\* CBulletFist" ../src/common/types.cpp | head -n 1 | cut -d: -f1)"
+              for v in "$EFFECT_STAR" "$ENEMY_STAR" "$CIVILIAN_STAR" "$PUNISHER_STAR" "$WEAPON_STAR" "$BULLET_STAR"; do test -n "$v"; done
+
+              EFFECT_START=$((EFFECT_STAR - 1))
+              ENEMY_START=$((ENEMY_STAR - 1))
+              CIVILIAN_START=$((CIVILIAN_STAR - 1))
+              PUNISHER_START=$((PUNISHER_STAR - 1))
+              WEAPON_START=$((WEAPON_STAR - 1))
+              BULLET_START=$((BULLET_STAR - 1))
+              BODY_END=$((EFFECT_START - 1))
+              EFFECT_END=$((ENEMY_START - 1))
+              ENEMY_A_END=$((CIVILIAN_START - 1))
+              ENEMY_B_END=$((PUNISHER_START - 1))
+              CORE_END=$((WEAPON_START - 1))
+              WEAPON_END=$((BULLET_START - 1))
+
+              make_group_source() {
+                name="$1"; start="$2"; end="$3"; out="types-${name}.cpp"
+                sed -n "1,5p" ../src/common/types.cpp > "$out"
+                if [ "$end" = "EOF" ]; then
+                  sed -n "${start},\$p" ../src/common/types.cpp >> "$out"
+                else
+                  sed -n "${start},${end}p" ../src/common/types.cpp >> "$out"
+                fi
+              }
+
+              make_group_source core 7 "$CORE_END"
+              make_group_source core-body 7 "$BODY_END"
+              make_group_source core-effects "$EFFECT_START" "$EFFECT_END"
+              make_group_source core-enemies "$ENEMY_START" "$CORE_END"
+              make_group_source enemy-a "$ENEMY_START" "$ENEMY_A_END"
+              make_group_source enemy-b "$CIVILIAN_START" "$ENEMY_B_END"
+              make_group_source enemy-c "$PUNISHER_START" "$CORE_END"
+              make_group_source weapons "$WEAPON_START" "$WEAPON_END"
+              make_group_source bullets "$BULLET_START" EOF
+
+              build_group_probe() {
+                name="$1"; marker="$2"; upper="$3"
+                $CXX $BASE $INCLUDES -c "types-${name}.cpp" -o "types-${name}.o"
+                $CXX $BASE \
+                  -DPROBE_MARKER=\"SYS:save/${marker}\" \
+                  -DPROBE_LABEL=\"${upper}_MAIN=1\\n\" \
+                  -c ../ci/fs-uae/tk4-object-probe.cpp -o "${name}-main.o"
+                $CXX $BASE "${name}-main.o" "types-${name}.o" libtk4-common-notypes.a $LIBS \
+                  -Wl,-Map="tk4-types-${name}.map" \
+                  -o "tk4-types-${name}-probe"
+              }
+
+              build_group_probe core m3-types-core-main.txt TYPES_CORE
+              build_group_probe core-body m3-types-core-body-main.txt TYPES_CORE_BODY
+              build_group_probe core-effects m3-types-core-effects-main.txt TYPES_CORE_EFFECTS
+              build_group_probe core-enemies m3-types-core-enemies-main.txt TYPES_CORE_ENEMIES
+              build_group_probe enemy-a m3-types-enemy-a-main.txt TYPES_ENEMY_A
+              build_group_probe enemy-b m3-types-enemy-b-main.txt TYPES_ENEMY_B
+              build_group_probe enemy-c m3-types-enemy-c-main.txt TYPES_ENEMY_C
+              build_group_probe weapons m3-types-weapons-main.txt TYPES_WEAPONS
+              build_group_probe bullets m3-types-bullets-main.txt TYPES_BULLETS
+
+              $CXX $BASE \
+                -DPROBE_MARKER=\"SYS:save/m3-types-main.txt\" \
+                -DPROBE_LABEL=\"TYPES_MAIN=1\\n\" \
+                -c ../ci/fs-uae/tk4-object-probe.cpp -o types-main.o
+              $CXX $BASE types-main.o "$TYPES_OBJ" libtk4-common.a $LIBS -o tk4-types-probe
+
+              $CXX $BASE \
+                -DPROBE_MARKER=\"SYS:save/m3-common-whole-main.txt\" \
+                -DPROBE_LABEL=\"COMMON_WHOLE_MAIN=1\\n\" \
+                -c ../ci/fs-uae/tk4-object-probe.cpp -o common-whole-main.o
+              $CXX $BASE common-whole-main.o \
+                -Wl,--whole-archive libtk4-common.a -Wl,--no-whole-archive \
+                $LIBS -o tk4-common-whole-probe
+
+              : > tk4-object-isolation-report.txt
+              echo "SPLIT_EFFECT_START=$EFFECT_START" >> tk4-object-isolation-report.txt
+              echo "SPLIT_ENEMY_START=$ENEMY_START" >> tk4-object-isolation-report.txt
+              echo "SPLIT_CIVILIAN_START=$CIVILIAN_START" >> tk4-object-isolation-report.txt
+              echo "SPLIT_PUNISHER_START=$PUNISHER_START" >> tk4-object-isolation-report.txt
+              echo "SPLIT_WEAPON_START=$WEAPON_START" >> tk4-object-isolation-report.txt
+              echo "SPLIT_BULLET_START=$BULLET_START" >> tk4-object-isolation-report.txt
+              for bin in \
+                tk4-types-core-probe \
+                tk4-types-core-body-probe \
+                tk4-types-core-effects-probe \
+                tk4-types-core-enemies-probe \
+                tk4-types-enemy-a-probe \
+                tk4-types-enemy-b-probe \
+                tk4-types-enemy-c-probe \
+                tk4-types-weapons-probe \
+                tk4-types-bullets-probe \
+                tk4-types-probe \
+                tk4-common-whole-probe \
+                tk4; do
+                echo "=== $bin ===" >> tk4-object-isolation-report.txt
+                stat -c "BYTES=%s" "$bin" >> tk4-object-isolation-report.txt
+                /opt/amiga/bin/m68k-amigaos-size -A "$bin" >> tk4-object-isolation-report.txt || true
+                /opt/amiga/bin/m68k-amigaos-objdump -f "$bin" > "$bin-objdump.txt" || true
+                /opt/amiga/bin/m68k-amigaos-objdump -r "$bin" > "$bin-relocations.txt" || true
+              done
+
+              : > tk4-archive-pulls.txt
+              for name in core-body core-effects enemy-a enemy-b enemy-c weapons bullets; do
+                echo "=== ${name} archive pulls ===" >> tk4-archive-pulls.txt
+                grep -o "libtk4-common-notypes.a([^)]*)" "tk4-types-${name}.map" \
+                  | sed "s/.*(//;s/).*//" \
+                  | sort -u >> tk4-archive-pulls.txt || true
+              done
+              echo "=== types.cpp relocation count ===" >> tk4-object-isolation-report.txt
+              /opt/amiga/bin/m68k-amigaos-objdump -r "$TYPES_OBJ" | grep -c "RELOC" >> tk4-object-isolation-report.txt || true
+              cat tk4-object-isolation-report.txt
+              cat tk4-archive-pulls.txt
+            '
+
+      - name: Run independent AROS object probes
+        run: |
+          chmod +x ci/fs-uae/*.sh
+          ci/fs-uae/run-aros-object-bisect.sh
+
+      - name: Upload object isolation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-amiga-m3-object-isolation
+          path: |
+            build-amiga/tk4-types-*-probe
+            build-amiga/tk4-types-probe
+            build-amiga/tk4-common-whole-probe
+            build-amiga/types-*.cpp
+            build-amiga/tk4-object-isolation-report.txt
+            build-amiga/tk4-archive-pulls.txt
+            build-amiga/tk4-types-*.map
+            build-amiga/*-objdump.txt
+            build-amiga/*-relocations.txt
+            build/fs-uae/aros-m3-bisect/result.txt
+            build/fs-uae/aros-m3-bisect/*/result.txt
+            build/fs-uae/aros-m3-bisect/*/fs-uae.log
+          if-no-files-found: warn

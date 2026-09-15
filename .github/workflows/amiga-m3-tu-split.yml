@@ -1,0 +1,98 @@
+name: Amiga M3 translation-unit split diagnostics
+
+on:
+  push:
+    branches: [amiga-m3]
+    paths:
+      - '.github/workflows/amiga-m3-tu-split.yml'
+      - 'src/common/CSteam.cpp'
+      - 'src/common/CSteamIO.cpp'
+      - 'src/common/CSteam.h'
+      - 'ci/fs-uae/tk4-object-probe.cpp'
+      - 'ci/fs-uae/run-aros-tu-perturbation.sh'
+  workflow_dispatch:
+
+jobs:
+  tu-split:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+
+      - name: Build focused physical CSteam split probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -euxo pipefail
+            if ! command -v cmake >/dev/null 2>&1; then apt-get update; DEBIAN_FRONTEND=noninteractive apt-get install -y cmake; fi
+            rm -rf build-amiga-tu-base build-amiga-tu-out
+            mkdir build-amiga-tu-base build-amiga-tu-out
+            cd build-amiga-tu-base
+            cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake -DTK4_AMIGA=ON -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_CXX_FLAGS="-m68020 -msoft-float -noixemul" \
+              -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
+              -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a \
+              -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+            cmake --build . --target tk4-common -- -j2
+            cd ..
+            CXX=/opt/amiga/bin/m68k-amigaos-g++; AR=/opt/amiga/bin/m68k-amigaos-ar
+            BASE="-m68020 -msoft-float -noixemul"
+            INC="-Isrc -Isrc/common -I/opt/amiga/m68k-amigaos/include/SDL -I/opt/amiga/SDL_image-pack/include/SDL -I/opt/amiga/SDL_mixer/include"
+            LIBS="/opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a /opt/amiga/m68k-amigaos/lib/libSDL.a /opt/amiga/SDL_image-pack/lib/libjpeg.a /opt/amiga/SDL_image-pack/lib/libpng.a /opt/amiga/zlib-package/lib/libz.a -lpthread"
+            : > build-amiga-tu-out/manifest.tsv
+            steam_member="$($AR t build-amiga-tu-base/libtk4-common.a | grep "CSteam.cpp.obj" | head -n1)"
+            steamio_member="$($AR t build-amiga-tu-base/libtk4-common.a | grep "CSteamIO.cpp.obj" | head -n1)"
+            test -n "$steam_member"; test -n "$steamio_member"
+            $AR p build-amiga-tu-base/libtk4-common.a "$steam_member" > build-amiga-tu-out/csteam-core.obj
+            $AR p build-amiga-tu-base/libtk4-common.a "$steamio_member" > build-amiga-tu-out/csteam-io.obj
+            cp build-amiga-tu-base/libtk4-common.a build-amiga-tu-out/libtk4-common-nosteam.a
+            $AR d build-amiga-tu-out/libtk4-common-nosteam.a "$steam_member" "$steamio_member"
+            printf "%s\n" "#include \"CSteam.h\"" "void CSteam::ReadFromFile(FILE *, int) {}" "void CSteam::WriteToFile(FILE *) {}" > build-amiga-tu-out/csteam-core-stub.cpp
+            $CXX $BASE $INC -c build-amiga-tu-out/csteam-core-stub.cpp -o build-amiga-tu-out/csteam-core-stub.obj
+            for variant in core io together; do
+              one="build-amiga-tu-out/lib-csteam-split-${variant}.a"
+              case "$variant" in
+                core) $AR rcs "$one" build-amiga-tu-out/csteam-core.obj build-amiga-tu-out/csteam-core-stub.obj ;;
+                io) $AR rcs "$one" build-amiga-tu-out/csteam-io.obj ;;
+                together) $AR rcs "$one" build-amiga-tu-out/csteam-core.obj build-amiga-tu-out/csteam-io.obj ;;
+              esac
+              marker="m3-tu-csteam-split-${variant}-main.txt"
+              mainobj="build-amiga-tu-out/csteam-split-${variant}-main.o"
+              bin="build-amiga-tu-out/csteam-split-${variant}-probe"
+              $CXX $BASE -DPROBE_MARKER=\"SYS:save/${marker}\" -DPROBE_LABEL=\"TU_CSTEAM_SPLIT_${variant}_MAIN=1\\n\" -c ci/fs-uae/tk4-object-probe.cpp -o "$mainobj"
+              $CXX $BASE "$mainobj" -Wl,--whole-archive "$one" -Wl,--no-whole-archive build-amiga-tu-out/libtk4-common-nosteam.a $LIBS -Wl,-Map="build-amiga-tu-out/csteam-split-${variant}.map" -o "$bin"
+              printf "csteam-split\t%s\t%s\n" "$variant" "$marker" >> build-amiga-tu-out/manifest.tsv
+            done
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-tu-*
+
+      - name: Inspect HUNK layouts
+        run: |
+          : > build-amiga-tu-out/hunk-report.txt
+          for f in build-amiga-tu-out/*-probe; do
+            echo "=== $f ===" | tee -a build-amiga-tu-out/hunk-report.txt
+            python3 tools/amiga_hunk_inspect.py "$f" | tee -a build-amiga-tu-out/hunk-report.txt
+          done
+
+      - name: Run physical split probes on AROS
+        run: |
+          chmod +x ci/fs-uae/*.sh
+          ci/fs-uae/run-aros-tu-perturbation.sh
+
+      - name: Upload TU diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-tu-layout-perturbation
+          path: |
+            build-amiga-tu-out/*
+            build/fs-uae/aros-m3-tu/result.txt
+            build/fs-uae/aros-m3-tu/*/result.txt
+            build/fs-uae/aros-m3-tu/*/fs-uae.log
+          if-no-files-found: warn

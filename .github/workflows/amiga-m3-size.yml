@@ -1,0 +1,86 @@
+name: Amiga M3 executable size diagnostics
+
+on:
+  push:
+    branches: [amiga-m3]
+  pull_request:
+    branches: [amiga-m2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  size-diagnostics:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build object size and relocation inventory
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -eux
+            if ! command -v cmake >/dev/null 2>&1; then apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y cmake; fi
+            rm -rf build-amiga-size && mkdir build-amiga-size && cd build-amiga-size
+            cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake -DTK4_AMIGA=ON -DCMAKE_BUILD_TYPE=Release -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+            cmake --build . -- -j2
+
+            : > object-size-report.txt
+            : > object-relocation-report.txt
+            : > object-section-report.txt
+            mkdir -p relocation-details section-details
+
+            reloc_re="^[[:space:]]*[0-9a-fA-F]+[[:space:]]+RELOC[0-9A-Z_]*[[:space:]]+"
+
+            find CMakeFiles/tk4.dir CMakeFiles/tk4-common.dir -type f \( -name "*.obj" -o -name "*.o" \) -print0 | while IFS= read -r -d "" obj; do
+              /opt/amiga/bin/m68k-amigaos-size "$obj" | tail -n 1 | awk -v o="$obj" "{print \$1, \$2, \$3, \$4, o}" >> object-size-report.txt
+
+              safe="$(printf "%s" "$obj" | tr "/" "_")"
+              /opt/amiga/bin/m68k-amigaos-objdump -r "$obj" > "relocation-details/$safe.txt" || true
+              /opt/amiga/bin/m68k-amigaos-objdump -h "$obj" > "section-details/$safe.txt" || true
+
+              reloc_count="$(grep -Ec "$reloc_re" "relocation-details/$safe.txt" || true)"
+              reloc_types="$(grep -E "$reloc_re" "relocation-details/$safe.txt" | awk "{print \$2}" | sort | uniq -c | tr "\\n" ";" || true)"
+              top_targets="$(grep -E "$reloc_re" "relocation-details/$safe.txt" | awk "{print \$3}" | sort | uniq -c | sort -nr | head -n 8 | tr "\\n" ";" || true)"
+              printf "%8d %s TYPES=[%s] TARGETS=[%s]\n" "$reloc_count" "$obj" "$reloc_types" "$top_targets" >> object-relocation-report.txt
+            done
+
+            find CMakeFiles/tk4.dir CMakeFiles/tk4-common.dir -type f \( -name "*.obj" -o -name "*.o" \) -print0 | while IFS= read -r -d "" obj; do
+              safe="$(printf "%s" "$obj" | tr "/" "_")"
+              printf "=== %s ===\n" "$obj"
+              cat "section-details/$safe.txt"
+            done > object-section-report.txt
+
+            sort -k4,4nr object-size-report.txt -o object-size-report.txt
+            sort -nr object-relocation-report.txt -o object-relocation-report.txt
+
+            /opt/amiga/bin/m68k-amigaos-objdump -h tk4 > tk4-sections.txt
+            /opt/amiga/bin/m68k-amigaos-objdump -r tk4 > tk4-relocations.txt || true
+            /opt/amiga/bin/m68k-amigaos-objdump -x tk4 > tk4-headers.txt || true
+
+            grep -hE "$reloc_re" relocation-details/*.txt | awk "{print \$2}" | sort | uniq -c | sort -nr > relocation-type-totals.txt || true
+            grep -hE "$reloc_re" relocation-details/*.txt | awk "{print \$3}" | sort | uniq -c | sort -nr > relocation-target-totals.txt || true
+
+            echo "=== largest objects ==="
+            echo "text data bss total object"
+            head -n 40 object-size-report.txt
+            echo "=== most relocations ==="
+            head -n 40 object-relocation-report.txt
+            echo "=== relocation type totals ==="
+            cat relocation-type-totals.txt
+            echo "=== top relocation targets ==="
+            head -n 40 relocation-target-totals.txt
+          '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-object-size-relocation-report
+          path: |
+            build-amiga-size/object-size-report.txt
+            build-amiga-size/object-relocation-report.txt
+            build-amiga-size/object-section-report.txt
+            build-amiga-size/relocation-type-totals.txt
+            build-amiga-size/relocation-target-totals.txt
+            build-amiga-size/tk4-sections.txt
+            build-amiga-size/tk4-relocations.txt
+            build-amiga-size/tk4-headers.txt
+            build-amiga-size/relocation-details/**
+            build-amiga-size/section-details/**
