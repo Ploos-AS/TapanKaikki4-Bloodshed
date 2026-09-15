@@ -33,12 +33,10 @@ probe_root() {
 }
 
 cleanup_emulator() {
-  local config="$1"
-  pkill -TERM -f "fs-uae.*$(printf '%q' "$config")" 2>/dev/null || true
-  pkill -TERM -f "Xvfb.*$PWD" 2>/dev/null || true
-  sleep 1
-  pkill -KILL -f "fs-uae.*$(printf '%q' "$config")" 2>/dev/null || true
-  pkill -KILL -f "Xvfb.*$PWD" 2>/dev/null || true
+  # Each probe runs under timeout/xvfb-run and gets its own extracted AROS tree.
+  # Do not pkill by command-line pattern here: on GitHub Actions that can also
+  # match the parent shell executing this script and abort the remaining probes.
+  :
 }
 
 run_probe() {
@@ -66,7 +64,9 @@ EOF
   sed "s|@AROS_ROOT@|$PWD/$root|" ci/fs-uae/aros-guest.fs-uae > "$config"
   set +e
   timeout --signal=TERM --kill-after=5s 25s xvfb-run -a fs-uae "$config" > "$run_dir/fs-uae.log" 2>&1
-  rc=$?; cleanup_emulator "$config"; set -e
+  rc=$?
+  cleanup_emulator "$config"
+  set -e
   [[ -f "$root/save/$marker" ]] && main=yes
   [[ -f "$root/tu-after.txt" ]] && returned=yes
   {
@@ -74,9 +74,13 @@ EOF
     echo "MAIN=$main"; echo "RETURNED=$returned"
     [[ -f "$root/tu-rc.txt" ]] && tr -d '\r' < "$root/tu-rc.txt" | sed 's/^/GUEST_RC=/'
   } | tee "$run_dir/result.txt"
+  return 0
 }
 
-for spec in "${probes[@]}"; do IFS=: read -r cls variant bin marker <<<"$spec"; run_probe "$cls" "$variant" "$bin" "$marker"; done
+for spec in "${probes[@]}"; do
+  IFS=: read -r cls variant bin marker <<<"$spec"
+  run_probe "$cls" "$variant" "$bin" "$marker" || true
+done
 
 {
   echo "STATUS=DIAGNOSTIC"
@@ -85,8 +89,13 @@ for spec in "${probes[@]}"; do IFS=: read -r cls variant bin marker <<<"$spec"; 
   for spec in "${probes[@]}"; do
     IFS=: read -r cls variant bin marker <<<"$spec"
     result="$OUT_DIR/${cls}-${variant}/result.txt"
-    main="$(sed -n 's/^MAIN=//p' "$result")"
-    returned="$(sed -n 's/^RETURNED=//p' "$result")"
+    if [[ -f "$result" ]]; then
+      main="$(sed -n 's/^MAIN=//p' "$result")"
+      returned="$(sed -n 's/^RETURNED=//p' "$result")"
+    else
+      main=missing
+      returned=missing
+    fi
     key="$(printf '%s_%s' "$cls" "$variant" | tr '[:lower:]-' '[:upper:]_')"
     echo "${key}_MAIN=$main"; echo "${key}_RETURNED=$returned"
     [[ "$main" == yes ]] || { [[ "$first_failure" != none ]] || first_failure="${cls}-${variant}"; }
