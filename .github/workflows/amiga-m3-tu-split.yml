@@ -40,7 +40,6 @@ jobs:
             LIBS="/opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a /opt/amiga/m68k-amigaos/lib/libSDL.a /opt/amiga/SDL_image-pack/lib/libjpeg.a /opt/amiga/SDL_image-pack/lib/libpng.a /opt/amiga/zlib-package/lib/libz.a -lpthread"
             : > build-amiga-tu-out/manifest.tsv
 
-            # Keep the existing Release-vs-O0 perturbation controls.
             for cls in CSteam CSpotlight; do
               src="src/common/${cls}.cpp"; low="$(printf "%s" "$cls" | tr A-Z a-z)"
               $CXX $BASE -O0 $INC -c "$src" -o "build-amiga-tu-out/${low}-o0.obj"
@@ -56,9 +55,6 @@ jobs:
               done
             done
 
-            # Physically isolate the CSteam split.  Remove both translation units
-            # from the support archive so a nominal single-object probe cannot
-            # silently pull its sibling back in through libtk4-common.a.
             steam_member="$($AR t build-amiga-tu-base/libtk4-common.a | grep "CSteam.cpp.obj" | head -n1)"
             steamio_member="$($AR t build-amiga-tu-base/libtk4-common.a | grep "CSteamIO.cpp.obj" | head -n1)"
             test -n "$steam_member"; test -n "$steamio_member"
@@ -67,10 +63,20 @@ jobs:
             cp build-amiga-tu-base/libtk4-common.a build-amiga-tu-out/libtk4-common-nosteam.a
             $AR d build-amiga-tu-out/libtk4-common-nosteam.a "$steam_member" "$steamio_member"
 
+            # Core references ReadFromFile through the FILE* constructor.  Supply a
+            # diagnostic-only definition when IO is intentionally absent.  IO-only
+            # needs no constructor stubs because no CSteam constructor is referenced.
+            cat > build-amiga-tu-out/csteam-core-stub.cpp <<"EOF"
+#include "CSteam.h"
+void CSteam::ReadFromFile(FILE *, int) {}
+void CSteam::WriteToFile(FILE *) {}
+EOF
+            $CXX $BASE $INC -c build-amiga-tu-out/csteam-core-stub.cpp -o build-amiga-tu-out/csteam-core-stub.obj
+
             for variant in core io together; do
               one="build-amiga-tu-out/lib-csteam-split-${variant}.a"
               case "$variant" in
-                core) $AR rcs "$one" build-amiga-tu-out/csteam-core.obj ;;
+                core) $AR rcs "$one" build-amiga-tu-out/csteam-core.obj build-amiga-tu-out/csteam-core-stub.obj ;;
                 io) $AR rcs "$one" build-amiga-tu-out/csteam-io.obj ;;
                 together) $AR rcs "$one" build-amiga-tu-out/csteam-core.obj build-amiga-tu-out/csteam-io.obj ;;
               esac
