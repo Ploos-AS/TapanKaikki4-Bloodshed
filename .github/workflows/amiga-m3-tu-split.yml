@@ -24,7 +24,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
 
-      - name: Build focused physical CSteam split probes
+      - name: Build focused CSteam constructor bisect probes
         shell: bash
         run: |
           set -euo pipefail
@@ -49,37 +49,55 @@ jobs:
             steam_member="$($AR t build-amiga-tu-base/libtk4-common.a | grep "CSteam.cpp.obj" | head -n1)"
             steamio_member="$($AR t build-amiga-tu-base/libtk4-common.a | grep "CSteamIO.cpp.obj" | head -n1)"
             test -n "$steam_member"; test -n "$steamio_member"
-            $AR p build-amiga-tu-base/libtk4-common.a "$steam_member" > build-amiga-tu-out/csteam-core.obj
-            $AR p build-amiga-tu-base/libtk4-common.a "$steamio_member" > build-amiga-tu-out/csteam-io.obj
             cp build-amiga-tu-base/libtk4-common.a build-amiga-tu-out/libtk4-common-nosteam.a
             $AR d build-amiga-tu-out/libtk4-common-nosteam.a "$steam_member" "$steamio_member"
-            printf "%s\n" "#include \"CSteam.h\"" "void CSteam::ReadFromFile(FILE *, int) {}" "void CSteam::WriteToFile(FILE *) {}" > build-amiga-tu-out/csteam-core-stub.cpp
-            $CXX $BASE $INC -c build-amiga-tu-out/csteam-core-stub.cpp -o build-amiga-tu-out/csteam-core-stub.obj
-            for variant in core io together; do
-              one="build-amiga-tu-out/lib-csteam-split-${variant}.a"
+
+            cat > build-amiga-tu-out/csteam-ctor-float.cpp <<"EOF"
+#include "CSteam.h"
+CSteam::CSteam(float aX,float aY,int aAngle,int aSpeed)
+{
+    iX=aX; iY=aY; iAngle=aAngle; iSpeed=aSpeed;
+}
+EOF
+            cat > build-amiga-tu-out/csteam-ctor-file.cpp <<"EOF"
+#include "CSteam.h"
+CSteam::CSteam(FILE *fptr, int aVersion)
+{
+    ReadFromFile(fptr, aVersion);
+}
+EOF
+            cat > build-amiga-tu-out/csteam-method-stubs.cpp <<"EOF"
+#include "CSteam.h"
+void CSteam::ReadFromFile(FILE *, int) {}
+void CSteam::WriteToFile(FILE *) {}
+EOF
+            for src in csteam-ctor-float csteam-ctor-file csteam-method-stubs; do
+              $CXX $BASE $INC -c "build-amiga-tu-out/${src}.cpp" -o "build-amiga-tu-out/${src}.obj"
+            done
+
+            for variant in empty float file both; do
+              one="build-amiga-tu-out/lib-csteam-bisect-${variant}.a"
               case "$variant" in
-                core) $AR rcs "$one" build-amiga-tu-out/csteam-core.obj build-amiga-tu-out/csteam-core-stub.obj ;;
-                io) $AR rcs "$one" build-amiga-tu-out/csteam-io.obj ;;
-                together) $AR rcs "$one" build-amiga-tu-out/csteam-core.obj build-amiga-tu-out/csteam-io.obj ;;
+                empty) $AR rcs "$one" build-amiga-tu-out/csteam-method-stubs.obj ;;
+                float) $AR rcs "$one" build-amiga-tu-out/csteam-ctor-float.obj build-amiga-tu-out/csteam-method-stubs.obj ;;
+                file) $AR rcs "$one" build-amiga-tu-out/csteam-ctor-file.obj build-amiga-tu-out/csteam-method-stubs.obj ;;
+                both) $AR rcs "$one" build-amiga-tu-out/csteam-ctor-float.obj build-amiga-tu-out/csteam-ctor-file.obj build-amiga-tu-out/csteam-method-stubs.obj ;;
               esac
-              marker="m3-tu-csteam-split-${variant}-main.txt"
-              mainobj="build-amiga-tu-out/csteam-split-${variant}-main.o"
-              bin="build-amiga-tu-out/csteam-split-${variant}-probe"
-              trace="build-amiga-tu-out/csteam-split-${variant}-trace.txt"
-              $CXX $BASE -DPROBE_MARKER=\"SYS:save/${marker}\" -DPROBE_LABEL=\"TU_CSTEAM_SPLIT_${variant}_MAIN=1\\n\" -c ci/fs-uae/tk4-object-probe.cpp -o "$mainobj"
-              $CXX $BASE "$mainobj" -Wl,-t -Wl,--trace-symbol=_ZN6CSteamC1EP6__sFILEi -Wl,--trace-symbol=_ZN6CSteam12ReadFromFileEP6__sFILEi -Wl,--trace-symbol=_ZN6CSteam11WriteToFileEP6__sFILE -Wl,--whole-archive "$one" -Wl,--no-whole-archive build-amiga-tu-out/libtk4-common-nosteam.a $LIBS -Wl,-Map="build-amiga-tu-out/csteam-split-${variant}.map" -o "$bin" >"$trace" 2>&1
-              printf "csteam-split\t%s\t%s\n" "$variant" "$marker" >> build-amiga-tu-out/manifest.tsv
+              marker="m3-tu-csteam-bisect-${variant}-main.txt"
+              mainobj="build-amiga-tu-out/csteam-bisect-${variant}-main.o"
+              bin="build-amiga-tu-out/csteam-bisect-${variant}-probe"
+              trace="build-amiga-tu-out/csteam-bisect-${variant}-trace.txt"
+              $CXX $BASE -DPROBE_MARKER=\"SYS:save/${marker}\" -DPROBE_LABEL=\"TU_CSTEAM_BISECT_${variant}_MAIN=1\\n\" -c ci/fs-uae/tk4-object-probe.cpp -o "$mainobj"
+              $CXX $BASE "$mainobj" -Wl,-t -Wl,--whole-archive "$one" -Wl,--no-whole-archive build-amiga-tu-out/libtk4-common-nosteam.a $LIBS -Wl,-Map="build-amiga-tu-out/csteam-bisect-${variant}.map" -o "$bin" >"$trace" 2>&1
+              printf "csteam-bisect\t%s\t%s\n" "$variant" "$marker" >> build-amiga-tu-out/manifest.tsv
             done
             {
-              echo "=== archive members ==="
-              $AR t build-amiga-tu-out/libtk4-common-nosteam.a
-              echo
-              for variant in core io together; do
+              for variant in empty float file both; do
                 echo "=== ${variant}: linker trace ==="
-                cat "build-amiga-tu-out/csteam-split-${variant}-trace.txt"
+                cat "build-amiga-tu-out/csteam-bisect-${variant}-trace.txt"
                 echo
                 echo "=== ${variant}: common archive members present in map ==="
-                grep -F "libtk4-common-nosteam.a(" "build-amiga-tu-out/csteam-split-${variant}.map" | sed -n "1,160p" || true
+                grep -F "libtk4-common-nosteam.a(" "build-amiga-tu-out/csteam-bisect-${variant}.map" | sed -n "1,160p" || true
                 echo
               done
             } > build-amiga-tu-out/archive-pull-report.txt
@@ -95,7 +113,7 @@ jobs:
             python3 tools/amiga_hunk_inspect.py "$f" | tee -a build-amiga-tu-out/hunk-report.txt
           done
 
-      - name: Run physical split probes on AROS
+      - name: Run constructor bisect probes on AROS
         run: |
           chmod +x ci/fs-uae/*.sh
           ci/fs-uae/run-aros-tu-perturbation.sh
