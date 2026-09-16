@@ -65,12 +65,27 @@ jobs:
               marker="m3-tu-csteam-split-${variant}-main.txt"
               mainobj="build-amiga-tu-out/csteam-split-${variant}-main.o"
               bin="build-amiga-tu-out/csteam-split-${variant}-probe"
+              trace="build-amiga-tu-out/csteam-split-${variant}-trace.txt"
               $CXX $BASE -DPROBE_MARKER=\"SYS:save/${marker}\" -DPROBE_LABEL=\"TU_CSTEAM_SPLIT_${variant}_MAIN=1\\n\" -c ci/fs-uae/tk4-object-probe.cpp -o "$mainobj"
-              $CXX $BASE "$mainobj" -Wl,--whole-archive "$one" -Wl,--no-whole-archive build-amiga-tu-out/libtk4-common-nosteam.a $LIBS -Wl,-Map="build-amiga-tu-out/csteam-split-${variant}.map" -o "$bin"
+              $CXX $BASE "$mainobj" -Wl,-t -Wl,--trace-symbol=_ZN6CSteamC1EP6__sFILEi -Wl,--trace-symbol=_ZN6CSteam12ReadFromFileEP6__sFILEi -Wl,--trace-symbol=_ZN6CSteam11WriteToFileEP6__sFILE -Wl,--whole-archive "$one" -Wl,--no-whole-archive build-amiga-tu-out/libtk4-common-nosteam.a $LIBS -Wl,-Map="build-amiga-tu-out/csteam-split-${variant}.map" -o "$bin" >"$trace" 2>&1
               printf "csteam-split\t%s\t%s\n" "$variant" "$marker" >> build-amiga-tu-out/manifest.tsv
             done
+            {
+              echo "=== archive members ==="
+              $AR t build-amiga-tu-out/libtk4-common-nosteam.a
+              echo
+              for variant in core io together; do
+                echo "=== ${variant}: linker trace ==="
+                cat "build-amiga-tu-out/csteam-split-${variant}-trace.txt"
+                echo
+                echo "=== ${variant}: common archive members present in map ==="
+                grep -F "libtk4-common-nosteam.a(" "build-amiga-tu-out/csteam-split-${variant}.map" | sed -n "1,160p" || true
+                echo
+              done
+            } > build-amiga-tu-out/archive-pull-report.txt
           '
           sudo chown -R "$(id -u):$(id -g)" build-amiga-tu-*
+          cat build-amiga-tu-out/archive-pull-report.txt
 
       - name: Inspect HUNK layouts
         run: |
