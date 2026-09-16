@@ -12,6 +12,7 @@ on:
       - 'ci/fs-uae/run-aros-tu-perturbation.sh'
   workflow_dispatch:
 
+# M3 constructor bisect trigger: empty / float / file / both.
 jobs:
   tu-split:
     runs-on: ubuntu-24.04
