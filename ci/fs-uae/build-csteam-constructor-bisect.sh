@@ -25,35 +25,48 @@ steamio_member="$($AR t build-amiga-tu-base/libtk4-common.a | grep "CSteamIO.cpp
 test -n "$steam_member"; test -n "$steamio_member"
 cp build-amiga-tu-base/libtk4-common.a build-amiga-tu-out/libtk4-common-nosteam.a
 $AR d build-amiga-tu-out/libtk4-common-nosteam.a "$steam_member" "$steamio_member"
-cat > build-amiga-tu-out/csteam-ctor-float.cpp <<"EOF"
+
+cat > build-amiga-tu-out/control.cpp <<"EOF"
+int tk4_m3_probe_control = 1;
+EOF
+cat > build-amiga-tu-out/linkedlist.cpp <<"EOF"
+#include "CLinkedList.h"
+class ProbeLinkedList : public CLinkedList<ProbeLinkedList> {};
+ProbeLinkedList tk4_m3_probe_linkedlist;
+EOF
+cat > build-amiga-tu-out/iostream.cpp <<"EOF"
+#include <iostream>
+int tk4_m3_probe_iostream = 1;
+EOF
+cat > build-amiga-tu-out/sstream.cpp <<"EOF"
+#include <sstream>
+int tk4_m3_probe_sstream = 1;
+EOF
+cat > build-amiga-tu-out/coord.cpp <<"EOF"
+#include "CCoord.h"
+CCoord<float> tk4_m3_probe_coord;
+EOF
+cat > build-amiga-tu-out/csteam-header.cpp <<"EOF"
+#include "CSteam.h"
+int tk4_m3_probe_csteam_header = sizeof(CSteam);
+EOF
+cat > build-amiga-tu-out/stubs.cpp <<"EOF"
 #include "CSteam.h"
 CSteam::CSteam(float aX,float aY,int aAngle,int aSpeed) { iX=aX; iY=aY; iAngle=aAngle; iSpeed=aSpeed; }
-EOF
-cat > build-amiga-tu-out/csteam-ctor-file.cpp <<"EOF"
-#include "CSteam.h"
-CSteam::CSteam(FILE *fptr, int aVersion) { ReadFromFile(fptr, aVersion); }
-EOF
-cat > build-amiga-tu-out/csteam-method-stubs.cpp <<"EOF"
-#include "CSteam.h"
+CSteam::CSteam(FILE *, int) { iX=0; iY=0; iAngle=0; iSpeed=0; }
 void CSteam::ReadFromFile(FILE *, int) {}
 void CSteam::WriteToFile(FILE *) {}
 EOF
-for src in csteam-ctor-float csteam-ctor-file csteam-method-stubs; do
-  $CXX $BASE $INC -c "build-amiga-tu-out/${src}.cpp" -o "build-amiga-tu-out/${src}.obj"
-done
-for variant in empty float file both; do
-  one="build-amiga-tu-out/lib-csteam-bisect-${variant}.a"
-  case "$variant" in
-    empty) $AR rcs "$one" build-amiga-tu-out/csteam-method-stubs.obj ;;
-    float) $AR rcs "$one" build-amiga-tu-out/csteam-ctor-float.obj build-amiga-tu-out/csteam-method-stubs.obj ;;
-    file) $AR rcs "$one" build-amiga-tu-out/csteam-ctor-file.obj build-amiga-tu-out/csteam-method-stubs.obj ;;
-    both) $AR rcs "$one" build-amiga-tu-out/csteam-ctor-float.obj build-amiga-tu-out/csteam-ctor-file.obj build-amiga-tu-out/csteam-method-stubs.obj ;;
-  esac
+
+for variant in control linkedlist iostream sstream coord csteam-header stubs; do
+  $CXX $BASE $INC -c "build-amiga-tu-out/${variant}.cpp" -o "build-amiga-tu-out/${variant}.obj"
   marker="m3-tu-csteam-bisect-${variant}-main.txt"
   mainobj="build-amiga-tu-out/csteam-bisect-${variant}-main.o"
   bin="build-amiga-tu-out/csteam-bisect-${variant}-probe"
   $CXX $BASE -DPROBE_MARKER=\"SYS:save/${marker}\" -DPROBE_LABEL=\"TU_CSTEAM_BISECT_${variant}_MAIN=1\\n\" -c ci/fs-uae/tk4-object-probe.cpp -o "$mainobj"
-  $CXX $BASE "$mainobj" -Wl,--whole-archive "$one" -Wl,--no-whole-archive build-amiga-tu-out/libtk4-common-nosteam.a $LIBS -Wl,-Map="build-amiga-tu-out/csteam-bisect-${variant}.map" -o "$bin"
+  $CXX $BASE "$mainobj" -Wl,--whole-archive "build-amiga-tu-out/${variant}.obj" -Wl,--no-whole-archive build-amiga-tu-out/libtk4-common-nosteam.a $LIBS \
+    -Wl,-Map="build-amiga-tu-out/csteam-bisect-${variant}.map" \
+    -Wl,-t -o "$bin" 2>"build-amiga-tu-out/csteam-bisect-${variant}.trace"
   printf "csteam-bisect\t%s\t%s\n" "$variant" "$marker" >> build-amiga-tu-out/manifest.tsv
 done
 '
