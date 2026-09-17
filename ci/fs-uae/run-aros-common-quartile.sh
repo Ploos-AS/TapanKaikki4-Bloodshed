@@ -50,12 +50,10 @@ probe_root() {
 }
 
 cleanup_emulator() {
-  local config="$1"
-  pkill -TERM -f "fs-uae.*$(printf '%q' "$config")" 2>/dev/null || true
-  pkill -TERM -f "Xvfb.*$PWD" 2>/dev/null || true
-  sleep 1
-  pkill -KILL -f "fs-uae.*$(printf '%q' "$config")" 2>/dev/null || true
-  pkill -KILL -f "Xvfb.*$PWD" 2>/dev/null || true
+  # timeout/xvfb-run owns the emulator lifetime. Avoid pkill -f patterns here:
+  # on GitHub Actions they can match the parent shell and terminate the rest
+  # of this multi-probe diagnostic before the combination results are known.
+  :
 }
 
 run_probe() {
