@@ -57,6 +57,7 @@ EOF
     echo "MAIN=$main"; echo "RETURNED=$returned"
     [[ -f "$root/main-object-rc.txt" ]] && tr -d '\r' < "$root/main-object-rc.txt" | sed 's/^/GUEST_RC=/'
   } | tee "$run_dir/result.txt"
+  return 0
 }
 
 for spec in "${probes[@]}"; do IFS=: read -r name bin marker label <<<"$spec"; run_probe "$name" "$bin" "$marker" "$label"; done
