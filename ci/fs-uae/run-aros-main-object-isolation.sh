@@ -55,7 +55,9 @@ EOF
   {
     echo "PROBE=$name"; echo "LABEL=$label"; echo "FS_UAE_EXIT=$rc"
     echo "MAIN=$main"; echo "RETURNED=$returned"
-    [[ -f "$root/main-object-rc.txt" ]] && tr -d '\r' < "$root/main-object-rc.txt" | sed 's/^/GUEST_RC=/'
+    if [[ -f "$root/main-object-rc.txt" ]]; then
+      tr -d '\r' < "$root/main-object-rc.txt" | sed 's/^/GUEST_RC=/'
+    fi
   } | tee "$run_dir/result.txt"
   return 0
 }
