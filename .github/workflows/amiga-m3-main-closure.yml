@@ -31,8 +31,7 @@ jobs:
             LIBS="build-amiga/libtk4-common.a /opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a /opt/amiga/m68k-amigaos/lib/libSDL.a /opt/amiga/SDL_image-pack/lib/libjpeg.a /opt/amiga/SDL_image-pack/lib/libpng.a /opt/amiga/zlib-package/lib/libz.a -lpthread"
             mapfile -t OBJECTS < <(find build-amiga/CMakeFiles/tk4.dir/src -type f -name "*.cpp.obj" ! -name "main.cpp.obj" | sort)
             n=${#OBJECTS[@]}; test "$n" -gt 10
-            printf "%s
-" "${OBJECTS[@]}" > "$OUT/object-list.txt"
+            printf "%s\\n" "${OBJECTS[@]}" > "$OUT/object-list.txt"
             : > "$OUT/manifest.tsv"; : > "$OUT/layout.txt"; : > "$OUT/link-skips.txt"
             declare -A provider
             for i in "${!OBJECTS[@]}"; do
@@ -51,23 +50,19 @@ jobs:
                   done < <($NM -u "${OBJECTS[$i]}" 2>/dev/null | awk "{print \$NF}")
                 done
               done
-              printf "%s
-" "${!have[@]}" | sort -n
+              printf "%s\\n" "${!have[@]}" | sort -n
             }
             build_set() {
               label="$1"; shift; mapfile -t idx < <(closure "$@")
               objs=(); for i in "${idx[@]}"; do objs+=("${OBJECTS[$i]}"); done
               printf "%s COUNT=%s:" "$label" "${#objs[@]}" >> "$OUT/layout.txt"
-              for x in "${objs[@]}"; do printf " %s" "${x##*/}" >> "$OUT/layout.txt"; done; printf "
-" >> "$OUT/layout.txt"
+              for x in "${objs[@]}"; do printf " %s" "${x##*/}" >> "$OUT/layout.txt"; done; printf "\\n" >> "$OUT/layout.txt"
               marker="m3-main-closure-${label}.txt"; bin="main-closure-${label}-probe"
               $CXX $BASE -DPROBE_MARKER="SYS:save/${marker}" -DPROBE_LABEL="MAIN_CLOSURE_${label}=1\n" -c ci/fs-uae/tk4-object-probe.cpp -o "$OUT/${label}-main.o"
               set +e
               $CXX $BASE "$OUT/${label}-main.o" "${objs[@]}" $LIBS -Wl,-Map="$OUT/${label}.map" -o "$OUT/$bin" >"$OUT/${label}.link.log" 2>&1
               rc=$?; set -e
-              if [ "$rc" -eq 0 ]; then printf "%s	%s	%s	%s
-" "$label" "$label" "$bin" "$marker" >> "$OUT/manifest.tsv"; else printf "%s	COUNT=%s
-" "$label" "${#objs[@]}" >> "$OUT/link-skips.txt"; fi
+              if [ "$rc" -eq 0 ]; then printf "%s\\t%s\\t%s\\t%s\\n" "$label" "$label" "$bin" "$marker" >> "$OUT/manifest.tsv"; else printf "%s\\tCOUNT=%s\\n" "$label" "${#objs[@]}" >> "$OUT/link-skips.txt"; fi
             }
             q=$(( (n + 3) / 4 ))
             for p in 0 1 2 3; do s=$((p*q)); e=$((s+q)); [ "$e" -gt "$n" ] && e=$n; seed=(); for ((i=s;i<e;i++)); do seed+=("$i"); done; build_set "q$((p+1))-closure" "${seed[@]}"; done
