@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OUT_DIR="${1:-build/fs-uae/aros-m3-main-object-isolation}"
+OUT_DIR="${OUT_DIR:-${1:-build/fs-uae/aros-m3-main-object-isolation}}"
 SYSTEM_DIR="build/fs-uae/aros-system"
-NATIVE_DIR="build-amiga-main-objects"
+NATIVE_DIR="${NATIVE_DIR:-build-amiga-main-objects}"
 MANIFEST="$NATIVE_DIR/manifest.tsv"
 mkdir -p "$OUT_DIR"
 
