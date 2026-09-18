@@ -76,6 +76,23 @@ jobs:
               printf "\n" >> "$OUT/layout.txt"
               build_probe "$label" "${front[@]}" "${moved[@]}"
             done
+            # Stronger whole-set permutations; all src dependencies stay present.
+            reversed=()
+            for ((i=n-1; i>=0; i--)); do reversed+=("${OBJECTS[$i]}"); done
+            build_probe reverse "${reversed[@]}"
+            printf "reverse: complete object list reversed\\n" >> "$OUT/layout.txt"
+
+            half=$(( (n + 1) / 2 ))
+            build_probe halves-swapped "${OBJECTS[@]:$half}" "${OBJECTS[@]:0:$half}"
+            printf "halves-swapped: second half followed by first half\\n" >> "$OUT/layout.txt"
+
+            odd=(); even=()
+            for i in "${!OBJECTS[@]}"; do
+              if (( i % 2 )); then odd+=("${OBJECTS[$i]}"); else even+=("${OBJECTS[$i]}"); fi
+            done
+            build_probe odd-even "${odd[@]}" "${even[@]}"
+            printf "odd-even: odd-index objects followed by even-index objects\\n" >> "$OUT/layout.txt"
+
             cat "$OUT/manifest.tsv"
             cat "$OUT/layout.txt"
           '
