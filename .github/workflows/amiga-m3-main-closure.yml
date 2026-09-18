@@ -58,7 +58,7 @@ jobs:
               printf "%s COUNT=%s:" "$label" "${#objs[@]}" >> "$OUT/layout.txt"
               for x in "${objs[@]}"; do printf " %s" "${x##*/}" >> "$OUT/layout.txt"; done; printf "\\n" >> "$OUT/layout.txt"
               marker="m3-main-closure-${label}.txt"; bin="main-closure-${label}-probe"
-              $CXX $BASE -DPROBE_MARKER="SYS:save/${marker}" -DPROBE_LABEL="MAIN_CLOSURE_${label}=1\n" -c ci/fs-uae/tk4-object-probe.cpp -o "$OUT/${label}-main.o"
+              $CXX $BASE -DPROBE_MARKER=\\\"SYS:save/${marker}\\\" -DPROBE_LABEL=\\\"MAIN_CLOSURE_${label}=1\\\\n\\\" -c ci/fs-uae/tk4-object-probe.cpp -o "$OUT/${label}-main.o"
               set +e
               $CXX $BASE "$OUT/${label}-main.o" "${objs[@]}" $LIBS -Wl,-Map="$OUT/${label}.map" -o "$OUT/$bin" >"$OUT/${label}.link.log" 2>&1
               rc=$?; set -e
