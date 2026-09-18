@@ -2,7 +2,7 @@ name: Amiga M3 main dependency-closure reduction
 on:
   push:
     branches: [amiga-m3]
-    paths: [".github/workflows/amiga-m3-main-closure.yml", "ci/fs-uae/**", "src/**", "CMakeLists.txt"]
+    paths:\n      - ".github/workflows/amiga-m3-main-closure.yml"\n      - "ci/fs-uae/**"\n      - "src/**"\n      - "CMakeLists.txt"
   workflow_dispatch:
 permissions:
   contents: read
