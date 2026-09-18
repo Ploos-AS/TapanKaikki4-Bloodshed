@@ -1,0 +1,94 @@
+name: Amiga M3 main dependency-closure reduction
+on:
+  push:
+    branches: [amiga-m3]
+    paths: [".github/workflows/amiga-m3-main-closure.yml", "ci/fs-uae/**", "src/**", "CMakeLists.txt"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  main-closure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+      - name: Build dependency-closure probes
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -euxo pipefail
+            command -v cmake >/dev/null 2>&1 || { apt-get update; DEBIAN_FRONTEND=noninteractive apt-get install -y cmake; }
+            rm -rf build-amiga build-amiga-main-closure
+            mkdir build-amiga && cd build-amiga
+            cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake -DTK4_AMIGA=ON -DCMAKE_BUILD_TYPE=Release -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+            cmake --build . -- -j2
+            cd ..
+            OUT=build-amiga-main-closure; mkdir -p "$OUT"
+            CXX=/opt/amiga/bin/m68k-amigaos-g++; NM=/opt/amiga/bin/m68k-amigaos-nm
+            BASE="-m68020 -msoft-float -noixemul"
+            LIBS="build-amiga/libtk4-common.a /opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a /opt/amiga/m68k-amigaos/lib/libSDL.a /opt/amiga/SDL_image-pack/lib/libjpeg.a /opt/amiga/SDL_image-pack/lib/libpng.a /opt/amiga/zlib-package/lib/libz.a -lpthread"
+            mapfile -t OBJECTS < <(find build-amiga/CMakeFiles/tk4.dir/src -type f -name "*.cpp.obj" ! -name "main.cpp.obj" | sort)
+            n=${#OBJECTS[@]}; test "$n" -gt 10
+            printf "%s
+" "${OBJECTS[@]}" > "$OUT/object-list.txt"
+            : > "$OUT/manifest.tsv"; : > "$OUT/layout.txt"; : > "$OUT/link-skips.txt"
+            declare -A provider
+            for i in "${!OBJECTS[@]}"; do
+              while read -r sym; do [ -n "$sym" ] && provider["$sym"]="$i"; done < <($NM -g --defined-only "${OBJECTS[$i]}" 2>/dev/null | awk "{print \$NF}")
+            done
+            closure() {
+              local -a sel=("$@"); local changed=1
+              declare -A have=()
+              for i in "${sel[@]}"; do have[$i]=1; done
+              while ((changed)); do
+                changed=0
+                for i in "${!have[@]}"; do
+                  while read -r sym; do
+                    j="${provider[$sym]:-}"
+                    if [ -n "$j" ] && [ -z "${have[$j]:-}" ]; then have[$j]=1; changed=1; fi
+                  done < <($NM -u "${OBJECTS[$i]}" 2>/dev/null | awk "{print \$NF}")
+                done
+              done
+              printf "%s
+" "${!have[@]}" | sort -n
+            }
+            build_set() {
+              label="$1"; shift; mapfile -t idx < <(closure "$@")
+              objs=(); for i in "${idx[@]}"; do objs+=("${OBJECTS[$i]}"); done
+              printf "%s COUNT=%s:" "$label" "${#objs[@]}" >> "$OUT/layout.txt"
+              for x in "${objs[@]}"; do printf " %s" "${x##*/}" >> "$OUT/layout.txt"; done; printf "
+" >> "$OUT/layout.txt"
+              marker="m3-main-closure-${label}.txt"; bin="main-closure-${label}-probe"
+              $CXX $BASE -DPROBE_MARKER="SYS:save/${marker}" -DPROBE_LABEL="MAIN_CLOSURE_${label}=1\n" -c ci/fs-uae/tk4-object-probe.cpp -o "$OUT/${label}-main.o"
+              set +e
+              $CXX $BASE "$OUT/${label}-main.o" "${objs[@]}" $LIBS -Wl,-Map="$OUT/${label}.map" -o "$OUT/$bin" >"$OUT/${label}.link.log" 2>&1
+              rc=$?; set -e
+              if [ "$rc" -eq 0 ]; then printf "%s	%s	%s	%s
+" "$label" "$label" "$bin" "$marker" >> "$OUT/manifest.tsv"; else printf "%s	COUNT=%s
+" "$label" "${#objs[@]}" >> "$OUT/link-skips.txt"; fi
+            }
+            q=$(( (n + 3) / 4 ))
+            for p in 0 1 2 3; do s=$((p*q)); e=$((s+q)); [ "$e" -gt "$n" ] && e=$n; seed=(); for ((i=s;i<e;i++)); do seed+=("$i"); done; build_set "q$((p+1))-closure" "${seed[@]}"; done
+            for lane in 0 1; do seed=(); for ((i=lane;i<n;i+=2)); do seed+=("$i"); done; build_set "lane$lane-closure" "${seed[@]}"; done
+            test -s "$OUT/manifest.tsv"
+            cat "$OUT/layout.txt"; cat "$OUT/manifest.tsv"; cat "$OUT/link-skips.txt"
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-main-closure
+      - name: Run closure probes inside AROS
+        run: |
+          chmod +x ci/fs-uae/*.sh
+          OUT_DIR=build/fs-uae/aros-m3-main-closure NATIVE_DIR=build-amiga-main-closure ci/fs-uae/run-aros-main-object-isolation.sh
+      - name: Upload closure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-main-closure
+          path: |
+            build-amiga-main-closure/**
+            build/fs-uae/aros-m3-main-closure/result.txt
+            build/fs-uae/aros-m3-main-closure/*/result.txt
+            build/fs-uae/aros-m3-main-closure/*/fs-uae.log
+          if-no-files-found: warn
