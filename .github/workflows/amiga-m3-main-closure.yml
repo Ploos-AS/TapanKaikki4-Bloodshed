@@ -58,7 +58,19 @@ jobs:
               printf "%s COUNT=%s:" "$label" "${#objs[@]}" >> "$OUT/layout.txt"
               for x in "${objs[@]}"; do printf " %s" "${x##*/}" >> "$OUT/layout.txt"; done; printf "\\n" >> "$OUT/layout.txt"
               marker="m3-main-closure-${label}.txt"; bin="main-closure-${label}-probe"
-              cp ci/fs-uae/tk4-object-probe.cpp "$OUT/${label}-main.cpp"\n              sed -i "s|#define PROBE_MARKER .*|#define PROBE_MARKER \\"SYS:save/${marker}\\"|" "$OUT/${label}-main.cpp"\n              sed -i "s|#define PROBE_LABEL .*|#define PROBE_LABEL \\"MAIN_CLOSURE_${label}=1\\\\n\\"|" "$OUT/${label}-main.cpp"\n              $CXX $BASE -c "$OUT/${label}-main.cpp" -o "$OUT/${label}-main.o"
+              cat > "$OUT/${label}-main.cpp" <<EOF
+#include <cstdio>
+int main()
+{
+    FILE *f = std::fopen("SYS:save/${marker}", "w");
+    if (f) {
+        std::fputs("MAIN_CLOSURE_${label}=1\\n", f);
+        std::fclose(f);
+    }
+    return 0;
+}
+EOF
+              $CXX $BASE -c "$OUT/${label}-main.cpp" -o "$OUT/${label}-main.o"
               set +e
               $CXX $BASE "$OUT/${label}-main.o" "${objs[@]}" $LIBS -Wl,-Map="$OUT/${label}.map" -o "$OUT/$bin" >"$OUT/${label}.link.log" 2>&1
               rc=$?; set -e
