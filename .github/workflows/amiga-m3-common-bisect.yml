@@ -1,0 +1,123 @@
+name: Amiga M3 common archive bisect
+
+on:
+  push:
+    branches: [amiga-m3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  common-bisect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+
+      - name: Build common archive bisect probes
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            ozzyboshi/bebbo-amiga-gcc:latest \
+            bash -lc '
+              set -eux
+              if ! command -v cmake >/dev/null 2>&1; then
+                apt-get update
+                DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
+              fi
+              rm -rf build-amiga
+              mkdir build-amiga
+              cd build-amiga
+              cmake .. \
+                -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake \
+                -DTK4_AMIGA=ON \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL \
+                -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
+                -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL \
+                -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a \
+                -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include \
+                -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              cmake --build . -- -j2
+
+              CXX=/opt/amiga/bin/m68k-amigaos-g++
+              BASE="-m68020 -msoft-float -noixemul"
+              SDL_LIB=/opt/amiga/m68k-amigaos/lib/libSDL.a
+              IMAGE_LIB=/opt/amiga/SDL_image-pack/lib/libSDL_image.a
+              MIXER_LIB=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              JPEG_LIB=/opt/amiga/SDL_image-pack/lib/libjpeg.a
+              PNG_LIB=/opt/amiga/SDL_image-pack/lib/libpng.a
+              Z_LIB=/opt/amiga/zlib-package/lib/libz.a
+              LIBS="$IMAGE_LIB $MIXER_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread"
+              OBJROOT=CMakeFiles/tk4-common.dir/src/common
+
+              group_a=(CBulletBase.cpp.obj CBodyPartBase.cpp.obj CColorTable.cpp.obj CConfigFile.cpp.obj CDrawArea.cpp.obj CEditableLevel.cpp.obj CEffectBase.cpp.obj)
+              group_b=(CEnemyBase.cpp.obj CEventHandler.cpp.obj CFonts.cpp.obj CGameTypeData.cpp.obj CGraphicsDevice.cpp.obj CGraphicsBuffer.cpp.obj CGraphicsGenerator.cpp.obj)
+              group_c=(CLevel.cpp.obj CLightMap.cpp.obj CLightTable.cpp.obj CMath.cpp.obj CMouse.cpp.obj CPalette.cpp.obj CSpotlight.cpp.obj)
+              group_d=(CSteam.cpp.obj CWeaponBase.cpp.obj TypeInterfaces.cpp.obj defines.cpp.obj error.cpp.obj files.cpp.obj types.cpp.obj)
+
+              build_probe() {
+                name="$1"; marker="$2"; upper="$3"; shift 3
+                $CXX $BASE \
+                  -DPROBE_MARKER=\"SYS:save/${marker}\" \
+                  -DPROBE_LABEL=\"${upper}_MAIN=1\\n\" \
+                  -c ../ci/fs-uae/tk4-object-probe.cpp -o "${name}-main.o"
+                objs=()
+                for obj in "$@"; do
+                  test -f "$OBJROOT/$obj"
+                  objs+=("$OBJROOT/$obj")
+                done
+                $CXX $BASE "${name}-main.o" "${objs[@]}" libtk4-common.a $LIBS \
+                  -Wl,-Map="tk4-${name}.map" -o "tk4-${name}-probe"
+              }
+
+              build_probe common-a m3-common-a-main.txt COMMON_A "${group_a[@]}"
+              build_probe common-b m3-common-b-main.txt COMMON_B "${group_b[@]}"
+              build_probe common-c m3-common-c-main.txt COMMON_C "${group_c[@]}"
+              build_probe common-d m3-common-d-main.txt COMMON_D "${group_d[@]}"
+
+              $CXX $BASE \
+                -DPROBE_MARKER=\"SYS:save/m3-common-whole-main.txt\" \
+                -DPROBE_LABEL=\"COMMON_WHOLE_MAIN=1\\n\" \
+                -c ../ci/fs-uae/tk4-object-probe.cpp -o common-whole-main.o
+              $CXX $BASE common-whole-main.o \
+                -Wl,--whole-archive libtk4-common.a -Wl,--no-whole-archive \
+                $LIBS -o tk4-common-whole-probe
+
+              : > tk4-common-bisect-report.txt
+              for bin in tk4-common-a-probe tk4-common-b-probe tk4-common-c-probe tk4-common-d-probe tk4-common-whole-probe; do
+                echo "=== $bin ===" >> tk4-common-bisect-report.txt
+                stat -c "BYTES=%s" "$bin" >> tk4-common-bisect-report.txt
+                /opt/amiga/bin/m68k-amigaos-size -A "$bin" >> tk4-common-bisect-report.txt || true
+              done
+              cat tk4-common-bisect-report.txt
+            '
+
+      - name: Run independent AROS common probes
+        run: |
+          chmod +x ci/fs-uae/*.sh
+          ci/fs-uae/run-aros-common-bisect.sh
+
+      - name: Upload common bisect evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-amiga-m3-common-bisect
+          path: |
+            build-amiga/tk4-common-*-probe
+            build-amiga/tk4-common-*.map
+            build-amiga/tk4-common-bisect-report.txt
+            build/fs-uae/aros-m3-common-bisect/result.txt
+            build/fs-uae/aros-m3-common-bisect/*/result.txt
+            build/fs-uae/aros-m3-common-bisect/*/fs-uae.log
+          if-no-files-found: warn
+
+# Deliberate no-op diagnostic trigger: run the bisect after introducing this workflow.

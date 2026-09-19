@@ -1,0 +1,163 @@
+name: Amiga M3 raw relocation group layout diagnostics
+
+on:
+  push:
+    branches: [amiga-m3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reloc-group-layout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build real FAIL and matched synthetic PASS probes
+        run: |
+          set -euo pipefail
+          python3 tools/gen_amiga_reloc_target_probe.py \
+            --code-kib 744 \
+            --code-relocs 8780 \
+            --data-relocs 232 \
+            --bss-relocs 1216 \
+            --symbol steamlike \
+            --output /tmp/steamlike.s
+
+          docker run --rm \
+            -v "$PWD:/work" \
+            -v /tmp/steamlike.s:/tmp/steamlike.s:ro \
+            -w /work \
+            ozzyboshi/bebbo-amiga-gcc:latest \
+            bash -lc '
+              set -euxo pipefail
+              if ! command -v cmake >/dev/null 2>&1; then
+                apt-get update
+                DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
+              fi
+
+              rm -rf build-amiga-reloc-groups
+              mkdir build-amiga-reloc-groups
+              cd build-amiga-reloc-groups
+
+              cmake .. \
+                -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake \
+                -DTK4_AMIGA=ON \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL \
+                -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
+                -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL \
+                -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a \
+                -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include \
+                -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              cmake --build . -- -j2
+
+              CXX=/opt/amiga/bin/m68k-amigaos-g++
+              CC=/opt/amiga/bin/m68k-amigaos-gcc
+              AS=/opt/amiga/bin/m68k-amigaos-as
+              AR=/opt/amiga/bin/m68k-amigaos-ar
+              BASE="-m68020 -msoft-float -noixemul"
+              IMAGE_LIB=/opt/amiga/SDL_image-pack/lib/libSDL_image.a
+              MIXER_LIB=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              SDL_LIB=/opt/amiga/m68k-amigaos/lib/libSDL.a
+              JPEG_LIB=/opt/amiga/SDL_image-pack/lib/libjpeg.a
+              PNG_LIB=/opt/amiga/SDL_image-pack/lib/libpng.a
+              Z_LIB=/opt/amiga/zlib-package/lib/libz.a
+              LIBS="$IMAGE_LIB $MIXER_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread"
+
+              build_real() {
+                member="$1"
+                stem="$2"
+                mkdir "$stem-members"
+                $AR p libtk4-common.a "$member" > "$stem-members/$member"
+                (cd "$stem-members" && $AR rcs "../lib${stem}.a" "$member")
+                $CXX $BASE \
+                  -DPROBE_MARKER=\"SYS:save/m3-${stem}-main.txt\" \
+                  -DPROBE_LABEL=\"${stem}_MAIN=1\\n\" \
+                  -c ../ci/fs-uae/tk4-object-probe.cpp -o "${stem}-main.o"
+                $CXX $BASE "${stem}-main.o" \
+                  -Wl,--whole-archive "lib${stem}.a" -Wl,--no-whole-archive \
+                  libtk4-common.a $LIBS \
+                  -o "${stem}-probe"
+              }
+
+              build_real CSteam.cpp.obj steam
+              build_real CSpotlight.cpp.obj spotlight
+
+              cp /tmp/steamlike.s .
+              $AS steamlike.s -o steamlike.o
+              printf "%s\n" "int main(void) { return 0; }" > synthetic-main.c
+              $CC $BASE synthetic-main.c steamlike.o -o steamlike-probe
+
+              test -f steamlike-probe
+              stat -c "%n BYTES=%s" steam-probe spotlight-probe steamlike-probe
+            '
+
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-reloc-groups
+
+      - name: Compare raw HUNK relocation groups
+        run: |
+          set -euo pipefail
+          OUT=build-amiga-reloc-groups/reloc-group-report.txt
+          python3 tools/amiga_hunk_inspect.py \
+            build-amiga-reloc-groups/steam-probe \
+            build-amiga-reloc-groups/spotlight-probe \
+            build-amiga-reloc-groups/steamlike-probe | tee "$OUT"
+
+          python3 - <<'PY' | tee build-amiga-reloc-groups/reloc-group-summary.txt
+          from pathlib import Path
+          import re
+
+          text = Path('build-amiga-reloc-groups/reloc-group-report.txt').read_text()
+          blocks = re.split(r'^=== (.+?) ===$', text, flags=re.M)
+          parsed = {}
+          for i in range(1, len(blocks), 2):
+              name = blocks[i]
+              body = blocks[i + 1]
+              values = {}
+              groups = []
+              for line in body.splitlines():
+                  if '=' not in line:
+                      continue
+                  key, value = line.split('=', 1)
+                  if key.startswith('RELOC_GROUP_') and key != 'RELOC_GROUP_RELOCS_BY_PAIR':
+                      groups.append(value)
+                  else:
+                      values[key] = value
+              parsed[name] = (values, groups)
+
+          keys = [
+              'HEADER_ALLOC_BYTES', 'HEADER_MEM_FLAGS', 'SEQUENCE',
+              'RELOCS', 'RELOC_BY_SOURCE', 'RELOC_BY_TARGET',
+              'RELOC_GROUPS', 'RELOC_GROUPS_BY_PAIR',
+              'RELOC_GROUP_RELOCS_BY_PAIR'
+          ]
+          for name in ('steam-probe', 'spotlight-probe', 'steamlike-probe'):
+              values, groups = parsed[name]
+              print(f'=== SUMMARY={name} ===')
+              for key in keys:
+                  print(f'{key}={values.get(key, "missing")}')
+              print(f'GROUP_LINES={len(groups)}')
+
+          steam_values, steam_groups = parsed['steam-probe']
+          syn_values, syn_groups = parsed['steamlike-probe']
+          print('GATE=M3_RAW_RELOCATION_GROUP_LAYOUT')
+          print('STEAM_VS_SYNTH_GROUP_COUNT_SAME=' + ('yes' if len(steam_groups) == len(syn_groups) else 'no'))
+          print('STEAM_VS_SYNTH_GROUP_SEQUENCE_SAME=' + ('yes' if steam_groups == syn_groups else 'no'))
+          PY
+
+      - name: Upload relocation group evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-relocation-group-layout
+          path: |
+            build-amiga-reloc-groups/steam-probe
+            build-amiga-reloc-groups/spotlight-probe
+            build-amiga-reloc-groups/steamlike-probe
+            build-amiga-reloc-groups/reloc-group-report.txt
+            build-amiga-reloc-groups/reloc-group-summary.txt
+          if-no-files-found: warn
