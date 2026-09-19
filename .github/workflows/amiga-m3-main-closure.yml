@@ -39,6 +39,7 @@ jobs:
             done
             closure() {
               local -a sel=("$@"); local changed=1
+              local i sym j
               declare -A have=()
               for i in "${sel[@]}"; do have[$i]=1; done
               while ((changed)); do
@@ -53,8 +54,11 @@ jobs:
               printf "%s\\n" "${!have[@]}" | sort -n
             }
             build_set() {
-              label="$1"; shift; mapfile -t idx < <(closure "$@")
-              objs=(); for i in "${idx[@]}"; do objs+=("${OBJECTS[$i]}"); done
+              local label="$1"; shift
+              local -a idx=() objs=()
+              local i x marker bin rc
+              mapfile -t idx < <(closure "$@")
+              for i in "${idx[@]}"; do objs+=("${OBJECTS[$i]}"); done
               printf "%s COUNT=%s:" "$label" "${#objs[@]}" >> "$OUT/layout.txt"
               for x in "${objs[@]}"; do printf " %s" "${x##*/}" >> "$OUT/layout.txt"; done; printf "\\n" >> "$OUT/layout.txt"
               marker="m3-main-closure-${label}.txt"; bin="main-closure-${label}-probe"
