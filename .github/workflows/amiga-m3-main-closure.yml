@@ -71,6 +71,24 @@ jobs:
               rc=$?; set -e
               if [ "$rc" -eq 0 ]; then printf "%s\\t%s\\t%s\\t%s\\n" "$label" "$label" "$bin" "$marker" >> "$OUT/manifest.tsv"; else printf "%s\\tCOUNT=%s\\n" "$label" "${#objs[@]}" >> "$OUT/link-skips.txt"; fi
             }
+            # Round 2: q3-closure was the smallest failing closure in round 1
+            # (52/58). Restrict new seeds to that dependency-complete set and
+            # split it into quartiles/lanes before taking closure again.
+            q3s=$((2*((n + 3) / 4))); q3e=$((q3s + ((n + 3) / 4))); [ "$q3e" -gt "$n" ] && q3e=$n
+            q3seed=(); for ((i=q3s;i<q3e;i++)); do q3seed+=("$i"); done
+            mapfile -t Q3BASE < <(closure "${q3seed[@]}")
+            m=${#Q3BASE[@]}; rq=$(( (m + 3) / 4 ))
+            printf "ROUND2_BASE=q3-closure COUNT=%s\\n" "$m" >> "$OUT/layout.txt"
+            for p in 0 1 2 3; do
+              s=$((p*rq)); e=$((s+rq)); [ "$e" -gt "$m" ] && e=$m; [ "$s" -ge "$m" ] && continue
+              seed=(); for ((k=s;k<e;k++)); do seed+=("${Q3BASE[$k]}"); done
+              build_set "q3-r2-q$((p+1))-closure" "${seed[@]}"
+            done
+            for lane in 0 1; do
+              seed=(); for ((k=lane;k<m;k+=2)); do seed+=("${Q3BASE[$k]}"); done
+              build_set "q3-r2-lane$lane-closure" "${seed[@]}"
+            done
+
             q=$(( (n + 3) / 4 ))
             for p in 0 1 2 3; do s=$((p*q)); e=$((s+q)); [ "$e" -gt "$n" ] && e=$n; seed=(); for ((i=s;i<e;i++)); do seed+=("$i"); done; build_set "q$((p+1))-closure" "${seed[@]}"; done
             for lane in 0 1; do seed=(); for ((i=lane;i<n;i+=2)); do seed+=("$i"); done; build_set "lane$lane-closure" "${seed[@]}"; done
