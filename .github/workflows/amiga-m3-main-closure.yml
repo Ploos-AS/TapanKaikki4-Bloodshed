@@ -58,13 +58,13 @@ jobs:
               printf "%s COUNT=%s:" "$label" "${#objs[@]}" >> "$OUT/layout.txt"
               for x in "${objs[@]}"; do printf " %s" "${x##*/}" >> "$OUT/layout.txt"; done; printf "\\n" >> "$OUT/layout.txt"
               marker="m3-main-closure-${label}.txt"; bin="main-closure-${label}-probe"
-              printf '%s\n' '#include <cstdio>' 'int main()' '{' \
-                '    FILE *f = std::fopen("SYS:save/'"${marker}"'", "w");' \
-                '    if (f) {' \
-                '        std::fputs("MAIN_CLOSURE_'"${label}"'=1\\n", f);' \
-                '        std::fclose(f);' \
-                '    }' \
-                '    return 0;' '}' > "$OUT/${label}-main.cpp"
+              printf "%s\\n" "#include <cstdio>" "int main()" "{" \
+                "    FILE *f = std::fopen(\\\"SYS:save/${marker}\\\", \\\"w\\\");" \
+                "    if (f) {" \
+                "        std::fputs(\\\"MAIN_CLOSURE_${label}=1\\\\n\\\", f);" \
+                "        std::fclose(f);" \
+                "    }" \
+                "    return 0;" "}" > "$OUT/${label}-main.cpp"
               $CXX $BASE -c "$OUT/${label}-main.cpp" -o "$OUT/${label}-main.o"
               set +e
               $CXX $BASE "$OUT/${label}-main.o" "${objs[@]}" $LIBS -Wl,-Map="$OUT/${label}.map" -o "$OUT/$bin" >"$OUT/${label}.link.log" 2>&1
