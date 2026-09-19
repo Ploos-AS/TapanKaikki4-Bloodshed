@@ -59,9 +59,9 @@ jobs:
               for x in "${objs[@]}"; do printf " %s" "${x##*/}" >> "$OUT/layout.txt"; done; printf "\\n" >> "$OUT/layout.txt"
               marker="m3-main-closure-${label}.txt"; bin="main-closure-${label}-probe"
               printf "%s\\n" "#include <cstdio>" "int main()" "{" \
-                "    FILE *f = std::fopen(\\\"SYS:save/${marker}\\\", \\\"w\\\");" \
+                "    FILE *f = std::fopen(\"SYS:save/${marker}\", \"w\");" \
                 "    if (f) {" \
-                "        std::fputs(\\\"MAIN_CLOSURE_${label}=1\\\\n\\\", f);" \
+                "        std::fputs(\"MAIN_CLOSURE_${label}=1\\n\", f);" \
                 "        std::fclose(f);" \
                 "    }" \
                 "    return 0;" "}" > "$OUT/${label}-main.cpp"
