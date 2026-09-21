@@ -46,7 +46,7 @@ jobs:
             for i in "${!OBJECTS[@]}"; do
               while read -r sym; do
                 [ -n "$sym" ] && provider["$sym"]="$i"
-              done < <($NM -g --defined-only "${OBJECTS[$i]}" 2>/dev/null | awk '{print $NF}')
+              done < <($NM -g --defined-only "${OBJECTS[$i]}" 2>/dev/null | sed -E 's/.*[[:space:]]([^[:space:]]+)$/\\1/')
             done
 
             closure() {
@@ -60,7 +60,7 @@ jobs:
                   while read -r sym; do
                     j="${provider[$sym]:-}"
                     if [ -n "$j" ] && [ -z "${have[$j]:-}" ]; then have[$j]=1; changed=1; fi
-                  done < <($NM -u "${OBJECTS[$i]}" 2>/dev/null | awk '{print $NF}')
+                  done < <($NM -u "${OBJECTS[$i]}" 2>/dev/null | sed -E 's/.*[[:space:]]([^[:space:]]+)$/\\1/')
                 done
               done
               printf "%s\\n" "${!have[@]}" | sort -n
