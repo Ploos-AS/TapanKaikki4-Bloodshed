@@ -88,8 +88,8 @@ jobs:
                 '#include <cstdio>' \
                 'int main()' \
                 '{' \
-                '  FILE *f = std::fopen("SYS:save/'"$marker"'", "w");' \
-                '  if (f) { std::fputs("MAIN_SEED_'"$id"'=1\\n", f); std::fclose(f); }' \
+                "  FILE *f = std::fopen(\"SYS:save/$marker\", \"w\");" \
+                "  if (f) { std::fputs(\"MAIN_SEED_$id=1\\\\n\", f); std::fclose(f); }" \
                 '  return 0;' \
                 '}' > "$OUT/$label-main.cpp"
               $CXX $BASE -c "$OUT/$label-main.cpp" -o "$OUT/$label-main.o"
