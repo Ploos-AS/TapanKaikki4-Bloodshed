@@ -1,4 +1,5 @@
 name: Amiga M3 main seed-closure map
+# Diagnostic workflow revision: rerun repaired seed-closure generator.
 
 on:
   push:
