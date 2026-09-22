@@ -22,7 +22,7 @@ jobs:
 
       - name: Build one dependency closure per main TU
         run: |
-          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc "$(cat <<'SEED_BUILD_SCRIPT'\n
             set -euxo pipefail
             command -v cmake >/dev/null 2>&1 || { apt-get update; DEBIAN_FRONTEND=noninteractive apt-get install -y cmake; }
             rm -rf build-amiga build-amiga-seed-closures
@@ -108,7 +108,8 @@ jobs:
             cat "$OUT/seed-closure-report.txt"
             cat "$OUT/manifest.tsv"
             cat "$OUT/link-skips.txt" 2>/dev/null || true
-          '
+SEED_BUILD_SCRIPT
+          )"
           sudo chown -R "$(id -u):$(id -g)" build-amiga-seed-closures
 
 
