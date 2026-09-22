@@ -108,7 +108,8 @@ jobs:
             cat "$OUT/seed-closure-report.txt"
             cat "$OUT/manifest.tsv"
             cat "$OUT/link-skips.txt" 2>/dev/null || true
-SEED_BUILD_SCRIPT
+
+          SEED_BUILD_SCRIPT
           )"
           sudo chown -R "$(id -u):$(id -g)" build-amiga-seed-closures
 
