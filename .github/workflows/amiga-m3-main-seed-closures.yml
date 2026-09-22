@@ -1,5 +1,4 @@
 name: Amiga M3 main seed-closure map
-# Diagnostic workflow revision: rerun repaired seed-closure generator.
 
 on:
   push:
@@ -85,15 +84,14 @@ jobs:
               printf "SEED=%s MEMBER=%s COUNT=%s\\n" "$id" "$member" "$count" >> "$OUT/seed-closure-report.txt"
               for x in "${objs[@]}"; do printf "  %s\\n" "${x##*/}" >> "$OUT/seed-closure-report.txt"; done
 
-              cat > "$OUT/$label-main.cpp" <<EOF
-#include <cstdio>
-int main()
-{
-  FILE *f = std::fopen("SYS:save/${marker}", "w");
-  if (f) { std::fputs("MAIN_SEED_${id}=1\\n", f); std::fclose(f); }
-  return 0;
-}
-EOF
+              printf '%s\n' \
+                '#include <cstdio>' \
+                'int main()' \
+                '{' \
+                '  FILE *f = std::fopen("SYS:save/'"$marker"'", "w");' \
+                '  if (f) { std::fputs("MAIN_SEED_'"$id"'=1\\n", f); std::fclose(f); }' \
+                '  return 0;' \
+                '}' > "$OUT/$label-main.cpp"
               $CXX $BASE -c "$OUT/$label-main.cpp" -o "$OUT/$label-main.o"
 
               set +e
@@ -112,6 +110,7 @@ EOF
             cat "$OUT/link-skips.txt" 2>/dev/null || true
           '
           sudo chown -R "$(id -u):$(id -g)" build-amiga-seed-closures
+
 
       - name: Run seed closures inside AROS
         run: |
