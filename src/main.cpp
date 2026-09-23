@@ -51,7 +51,7 @@ void ExitHandler()
 }
 
 // TODO: CONFIGFILE
-const std::string KIconFile="tk.ico";
+const char* KIconFile="tk.ico";
 const char* KWindowCaption="Tapan Kaikki Bloodshed";
 
 int main(int argc,char *argv[]) 
@@ -66,9 +66,9 @@ int main(int argc,char *argv[])
 	try
 	{
 		// TODO: CONFIGFILE
-		CSplash::ShowSplash("efps/splash.bmp",KIconFile.c_str(),KWindowCaption);
+		CSplash::ShowSplash("efps/splash.bmp",KIconFile,KWindowCaption);
 		amiga_m3_marker("m3-splash-ok.txt");
-		GGameApp = new CGameApp(KIconFile.c_str(),KWindowCaption);
+		GGameApp = new CGameApp(KIconFile,KWindowCaption);
 		amiga_m3_marker("m3-app-ok.txt");
 #ifdef _DEBUG
 		GGameApp->SelfTest();
