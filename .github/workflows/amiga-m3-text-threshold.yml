@@ -46,7 +46,7 @@ jobs:
                 "}" > text-main.c
 
               : > text-build-report.txt
-              for kib in 384 448 480 496 508 512 516 520 544 576 640 704 736 752 768; do
+              for kib in 384 448 480 496 508 512 516 520 544 576 640 704 736 752 768 832 896 1024 1152 1280 1408 1536 1600 1664 1728 1792 1856 1920; do
                 bytes=$((kib * 1024))
                 printf ".text\n.globl _m3_text_pad_%s\n_m3_text_pad_%s:\n    .space %s,0x4e\n    rts\n" "$kib" "$kib" "$bytes" > "text-${kib}.s"
                 $AS "text-${kib}.s" -o "text-${kib}.o"
@@ -76,7 +76,7 @@ jobs:
 
           : > "$OUT/result.txt"
           first_failure=none
-          for kib in 384 448 480 496 508 512 516 520 544 576 640 704 736 752 768; do
+          for kib in 384 448 480 496 508 512 516 520 544 576 640 704 736 752 768 832 896 1024 1152 1280 1408 1536 1600 1664 1728 1792 1856 1920; do
             root="$OUT/root-${kib}"
             rm -rf "$root"
             cp -a "$template" "$root"
