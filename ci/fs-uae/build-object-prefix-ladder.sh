@@ -25,7 +25,7 @@ for n in $(seq 1 "${#OBJS[@]}"); do
   prefix=("${OBJS[@]:0:$n}")
   bin="build-amiga-prefix-out/prefix-$id-probe"
   $CXX $BASE build-amiga-prefix-out/main.o "${prefix[@]}" build-amiga-prefix-base/libtk4-common.a $LIBS -Wl,-Map="$bin.map" -o "$bin"
-  printf "%s\\t%s\\t%s\\n" "$id" "$n" "${OBJS[$((n-1))]}" >> build-amiga-prefix-out/manifest.tsv
+  printf "%s\\t%s\\t%s\\t%s\\n" "$id" "$n" "$rc" "${OBJS[$((n-1))]}" >> build-amiga-prefix-out/manifest.tsv
 done
 '
 sudo chown -R "$(id -u):$(id -g)" build-amiga-prefix-*
