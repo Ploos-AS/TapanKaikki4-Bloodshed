@@ -1,0 +1,41 @@
+name: Amiga M3 cumulative object prefix
+
+on:
+  push:
+    branches: [amiga-m3]
+  pull_request:
+    branches: [amiga-m2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prefix-ladder:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+      - name: Build cumulative object ladder
+        run: |
+          chmod +x ci/fs-uae/build-object-prefix-ladder.sh
+          ci/fs-uae/build-object-prefix-ladder.sh
+      - name: Run cumulative object ladder inside AROS
+        run: |
+          chmod +x ci/fs-uae/*.sh
+          ci/fs-uae/run-aros-object-prefix-ladder.sh
+      - name: Upload prefix ladder evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-cumulative-object-prefix
+          path: |
+            build-amiga-prefix-out/manifest.tsv
+            build-amiga-prefix-out/prefix-*.map
+            build/fs-uae/aros-m3-prefix/result.txt
+            build/fs-uae/aros-m3-prefix/*/fs-uae.log
+          if-no-files-found: warn
