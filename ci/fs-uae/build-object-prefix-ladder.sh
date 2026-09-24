@@ -24,7 +24,11 @@ for n in $(seq 1 "${#OBJS[@]}"); do
   id=$(printf "%03d" "$n")
   prefix=("${OBJS[@]:0:$n}")
   bin="build-amiga-prefix-out/prefix-$id-probe"
-  $CXX $BASE build-amiga-prefix-out/main.o "${prefix[@]}" build-amiga-prefix-base/libtk4-common.a $LIBS -Wl,-Map="$bin.map" -o "$bin"
+  set +e
+  $CXX $BASE build-amiga-prefix-out/main.o "${prefix[@]}" build-amiga-prefix-base/libtk4-common.a $LIBS -Wl,-Map="$bin.map" -o "$bin" 2>"$bin.link.txt"
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then rm -f "$bin"; fi
   printf "%s\\t%s\\t%s\\t%s\\n" "$id" "$n" "$rc" "${OBJS[$((n-1))]}" >> build-amiga-prefix-out/manifest.tsv
 done
 '
