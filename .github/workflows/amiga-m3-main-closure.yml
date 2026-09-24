@@ -98,7 +98,7 @@ jobs:
               build_set "q3-r3-base-plus-first$((k+1))" "${seed[@]}"
             done
 
-            # Reduce the failing 52-object q3 dependency core by seed.\n            for k in "${!Q3BASE[@]}"; do\n              i="${Q3BASE[$k]}"\n              label="q3-core-seed$(printf \'%02d\' "$((k+1))")"\n              build_set "$label" "$i"\n            done\n\n            q=$(( (n + 3) / 4 ))
+            # Reduce the failing 52-object q3 dependency core by seed.\n            for k in "${!Q3BASE[@]}"; do\n              i="${Q3BASE[$k]}"\n              label="$(printf "q3-core-seed%02d" "$((k+1))")"\n              build_set "$label" "$i"\n            done\n\n            q=$(( (n + 3) / 4 ))
             for p in 0 1 2 3; do s=$((p*q)); e=$((s+q)); [ "$e" -gt "$n" ] && e=$n; seed=(); for ((i=s;i<e;i++)); do seed+=("$i"); done; build_set "q$((p+1))-closure" "${seed[@]}"; done
             for lane in 0 1; do seed=(); for ((i=lane;i<n;i+=2)); do seed+=("$i"); done; build_set "lane$lane-closure" "${seed[@]}"; done
             test -s "$OUT/manifest.tsv"
