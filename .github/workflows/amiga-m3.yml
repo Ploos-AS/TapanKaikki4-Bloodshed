@@ -82,6 +82,25 @@ jobs:
                 $IMAGE_LIB $MIXER_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread \
                 -o tk4-object-full-probe
 
+              # Build leave-one-out variants of the failing full object-set probe.
+              : > object-drop-link-report.txt
+              for drop in "${!TK4_OBJS[@]}"; do
+                drop_obj="${TK4_OBJS[$drop]}"
+                drop_member="${drop_obj#CMakeFiles/tk4.dir/src/}"
+                id="$(printf "%03d" "$drop")"
+                KEEP_OBJS=()
+                for i in "${!TK4_OBJS[@]}"; do
+                  [ "$i" -eq "$drop" ] || KEEP_OBJS+=("${TK4_OBJS[$i]}")
+                done
+                set +e
+                $CXX $BASE tk4-object-probe-main.o "${KEEP_OBJS[@]}" libtk4-common.a \
+                  $IMAGE_LIB $MIXER_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread \
+                  -o "tk4-object-drop-${id}-probe" 2>"tk4-object-drop-${id}.link.txt"
+                rc=$?
+                set -e
+                printf "%s\\t%s\\tRC=%s\\n" "$id" "$drop_member" "$rc" | tee -a object-drop-link-report.txt
+              done
+
               : > binary-size-report.txt
               for bin in tk4 loader-probe cxx-init-probe sdl-startup-probe link-sdl-probe link-image-probe link-mixer-probe link-full-probe tk4-object-full-probe; do
                 /opt/amiga/bin/m68k-amigaos-objdump -f "$bin" > "$bin-objdump.txt"
@@ -122,6 +141,8 @@ jobs:
             build-amiga/sdl-startup-probe
             build-amiga/link-*-probe
             build-amiga/tk4-object-full-probe
+            build-amiga/object-drop-link-report.txt
+            build-amiga/tk4-object-drop-*.link.txt
             build-amiga/*-objdump.txt
             build-amiga/binary-size-report.txt
             build-amiga/tk4-static-init-report.txt
