@@ -1,0 +1,51 @@
+name: Amiga M3 GCC vlink driver probe
+
+on:
+  push:
+    branches: [amiga-m3]
+  pull_request:
+    branches: [amiga-m2]
+  workflow_dispatch:
+
+jobs:
+  vlink-driver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe GCC -B vlink substitution
+        run: |
+          mkdir -p build-amiga-vlink-probe
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -eu
+            OUT=build-amiga-vlink-probe/report.txt
+            : > "$OUT"
+            mkdir -p build-amiga-vlink-probe/bin
+            ln -sf /opt/amiga/bin/vlink build-amiga-vlink-probe/bin/ld
+            cat > build-amiga-vlink-probe/minimal.cpp <<EOF
+            extern "C" int main(void) { return 0; }
+EOF
+            echo "=== vlink help ===" >> "$OUT"
+            /opt/amiga/bin/vlink -h >> "$OUT" 2>&1 || true
+            echo "=== GCC driver with substituted ld ===" >> "$OUT"
+            set +e
+            /opt/amiga/bin/m68k-amigaos-g++ -m68020 -msoft-float -noixemul -v \
+              -B"$PWD/build-amiga-vlink-probe/bin/" \
+              build-amiga-vlink-probe/minimal.cpp -o build-amiga-vlink-probe/minimal-vlink \
+              >> "$OUT" 2>&1
+            rc=$?
+            set -e
+            echo "DRIVER_RC=$rc" >> "$OUT"
+            if [ -f build-amiga-vlink-probe/minimal-vlink ]; then
+              echo "OUTPUT=yes" >> "$OUT"
+              ls -l build-amiga-vlink-probe/minimal-vlink >> "$OUT"
+            else
+              echo "OUTPUT=no" >> "$OUT"
+            fi
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-probe
+          cat build-amiga-vlink-probe/report.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-vlink-driver-probe
+          path: build-amiga-vlink-probe/
