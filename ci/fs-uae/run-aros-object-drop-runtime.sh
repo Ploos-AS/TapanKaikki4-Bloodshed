@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 OUT="${1:-build/fs-uae/aros-m3-drop}"; SYS=build/fs-uae/aros-system; mkdir -p "$OUT"
-chmod +x ci/fs-uae/fetch-aros-system.sh\niso="$(ci/fs-uae/fetch-aros-system.sh "$SYS" | tail -n1)"; base="$OUT/base"; rm -rf "$base"; mkdir -p "$base"; 7z x -y -o"$base" "$iso" >/dev/null
+chmod +x ci/fs-uae/fetch-aros-system.sh
+iso="$(ci/fs-uae/fetch-aros-system.sh "$SYS" | tail -n1)"; base="$OUT/base"; rm -rf "$base"; mkdir -p "$base"; 7z x -y -o"$base" "$iso" >/dev/null
 startup="$(find "$base" -type f -ipath '*/s/startup-sequence' -print -quit)"; root="$(dirname "$(dirname "$startup")")"; rel="${root#"$base"/}"
 echo "STATUS=DIAGNOSTIC" >"$OUT/result.txt"; echo "GATE=M3_LEAVE_ONE_OUT_RUNTIME" >>"$OUT/result.txt"
 while IFS=$'\t' read -r id rc obj; do
