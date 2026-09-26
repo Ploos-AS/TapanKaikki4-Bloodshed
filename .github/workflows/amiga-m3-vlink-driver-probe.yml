@@ -22,7 +22,7 @@ jobs:
             : > "$OUT"
             mkdir -p build-amiga-vlink-probe/bin
             ln -sf /opt/amiga/bin/vlink build-amiga-vlink-probe/bin/ld
-            echo int\\ main\\(void\\)\\ \\{\\ return\\ 0\\\\;\\ \\} > build-amiga-vlink-probe/minimal.cpp
+            cp ci/fs-uae/vlink-minimal.cpp build-amiga-vlink-probe/minimal.cpp
             echo "=== vlink help ===" >> "$OUT"
             /opt/amiga/bin/vlink -h >> "$OUT" 2>&1 || true
             echo "=== GCC driver with substituted ld ===" >> "$OUT"
