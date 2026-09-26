@@ -1,0 +1,179 @@
+name: Amiga M3 HUNK symbol strip diagnostics
+
+on:
+  push:
+    branches: [amiga-m3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  symbol-strip:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+
+      - name: Build CSteam and CSpotlight original and stripped probes
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            ozzyboshi/bebbo-amiga-gcc:latest \
+            bash -lc '
+              set -euxo pipefail
+              if ! command -v cmake >/dev/null 2>&1; then
+                apt-get update
+                DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
+              fi
+              rm -rf build-amiga-symbol-strip
+              mkdir build-amiga-symbol-strip
+              cd build-amiga-symbol-strip
+              cmake .. \
+                -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake \
+                -DTK4_AMIGA=ON \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL \
+                -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
+                -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL \
+                -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a \
+                -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include \
+                -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              cmake --build . -- -j2
+
+              CXX=/opt/amiga/bin/m68k-amigaos-g++
+              AR=/opt/amiga/bin/m68k-amigaos-ar
+              STRIP=/opt/amiga/bin/m68k-amigaos-strip
+              SIZE=/opt/amiga/bin/m68k-amigaos-size
+              OBJDUMP=/opt/amiga/bin/m68k-amigaos-objdump
+              BASE="-m68020 -msoft-float -noixemul"
+              IMAGE_LIB=/opt/amiga/SDL_image-pack/lib/libSDL_image.a
+              MIXER_LIB=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              SDL_LIB=/opt/amiga/m68k-amigaos/lib/libSDL.a
+              JPEG_LIB=/opt/amiga/SDL_image-pack/lib/libjpeg.a
+              PNG_LIB=/opt/amiga/SDL_image-pack/lib/libpng.a
+              Z_LIB=/opt/amiga/zlib-package/lib/libz.a
+              LIBS="$IMAGE_LIB $MIXER_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread"
+
+              : > symbol-strip-build-report.txt
+              : > symbol-strip-manifest.tsv
+              for spec in "CSteam.cpp.obj:steam" "CSpotlight.cpp.obj:spotlight"; do
+                member="${spec%%:*}"
+                label="${spec##*:}"
+                dir="${label}-members"
+                mkdir "$dir"
+                $AR p libtk4-common.a "$member" > "$dir/$member"
+                (cd "$dir" && $AR rcs "../lib-${label}.a" "$member")
+
+                marker="m3-symbol-${label}-main.txt"
+                $CXX $BASE \
+                  -DPROBE_MARKER=\"SYS:save/${marker}\" \
+                  -DPROBE_LABEL=\"SYMBOL_${label}_MAIN=1\\n\" \
+                  -c ../ci/fs-uae/tk4-object-probe.cpp -o "${label}-main.o"
+                $CXX $BASE "${label}-main.o" \
+                  -Wl,--whole-archive "lib-${label}.a" -Wl,--no-whole-archive \
+                  libtk4-common.a $LIBS \
+                  -Wl,-Map="${label}-original.map" \
+                  -o "${label}-original"
+                cp "${label}-original" "${label}-stripped"
+                $STRIP --strip-all "${label}-stripped"
+
+                for variant in original stripped; do
+                  bin="${label}-${variant}"
+                  echo "=== $bin ===" >> symbol-strip-build-report.txt
+                  stat -c "FILE_BYTES=%s" "$bin" >> symbol-strip-build-report.txt
+                  $SIZE -A "$bin" >> symbol-strip-build-report.txt || true
+                  $OBJDUMP -h "$bin" >> symbol-strip-build-report.txt || true
+                  printf "%s\t%s\t%s\t%s\n" "$label" "$variant" "$bin" "$marker" >> symbol-strip-manifest.tsv
+                done
+              done
+              cat symbol-strip-build-report.txt
+              cat symbol-strip-manifest.tsv
+            '
+
+      - name: Run stripped versus original probes in isolated AROS guests
+        run: |
+          set -euo pipefail
+          OUT=build/fs-uae/aros-symbol-strip
+          SYSROOT=build/fs-uae/aros-system
+          mkdir -p "$OUT"
+          chmod +x ci/fs-uae/fetch-aros-system.sh
+          iso="$(ci/fs-uae/fetch-aros-system.sh "$SYSROOT" | tail -n 1)"
+          template="$OUT/template-root"
+          rm -rf "$template"
+          mkdir -p "$template"
+          7z x -y -o"$template" "$iso" >/dev/null
+          template_startup="$(find "$template" -type f -ipath '*/s/startup-sequence' -print -quit)"
+          test -n "$template_startup"
+
+          : > "$OUT/result.txt"
+          while IFS=$'\t' read -r label variant bin marker; do
+            root="$OUT/root-${label}-${variant}"
+            rm -rf "$root"
+            cp -a "$template" "$root"
+            startup="$(find "$root" -type f -ipath '*/s/startup-sequence' -print -quit)"
+            aros_root="$(dirname "$(dirname "$startup")")"
+            mkdir -p "$aros_root/save"
+            cp "build-amiga-symbol-strip/$bin" "$aros_root/$bin"
+            cp "$startup" "$startup.m3-symbol-original"
+            printf '%s\n' \
+              "SYS:C/Echo \"BEFORE=${label}-${variant}\" >SYS:m3-symbol-before.txt" \
+              "SYS:C/Stack 262144" \
+              "SYS:${bin}" \
+              'SYS:C/Echo $RC >SYS:m3-symbol-rc.txt' \
+              "SYS:C/Echo \"AFTER=${label}-${variant}\" >SYS:m3-symbol-after.txt" \
+              > "$startup"
+            config="$OUT/${label}-${variant}.fs-uae"
+            sed "s|@AROS_ROOT@|$PWD/$aros_root|" ci/fs-uae/aros-guest.fs-uae > "$config"
+            set +e
+            timeout --signal=TERM --kill-after=3s 20s xvfb-run -a fs-uae "$config" > "$OUT/fs-uae-${label}-${variant}.log" 2>&1
+            fsuae_rc=$?
+            set -e
+            before=no; main=no; after=no; rc=missing
+            test -f "$aros_root/m3-symbol-before.txt" && before=yes
+            test -f "$aros_root/save/$marker" && main=yes
+            test -f "$aros_root/m3-symbol-after.txt" && after=yes
+            test -f "$aros_root/m3-symbol-rc.txt" && rc="$(tr -d '\r\n' < "$aros_root/m3-symbol-rc.txt")"
+            echo "${label}_${variant^^} BEFORE=$before MAIN=$main AFTER=$after RC=$rc FS_UAE_EXIT=$fsuae_rc" | tee -a "$OUT/result.txt"
+          done < build-amiga-symbol-strip/symbol-strip-manifest.tsv
+
+          steam_original="$(grep '^steam_ORIGINAL ' "$OUT/result.txt")"
+          steam_stripped="$(grep '^steam_STRIPPED ' "$OUT/result.txt")"
+          spotlight_original="$(grep '^spotlight_ORIGINAL ' "$OUT/result.txt")"
+          spotlight_stripped="$(grep '^spotlight_STRIPPED ' "$OUT/result.txt")"
+          verdict=INCONCLUSIVE
+          if [[ "$steam_original" == *"MAIN=no"* && "$spotlight_original" == *"MAIN=no"* && \
+                "$steam_stripped" == *"MAIN=yes"* && "$steam_stripped" == *"RC=0"* && \
+                "$spotlight_stripped" == *"MAIN=yes"* && "$spotlight_stripped" == *"RC=0"* ]]; then
+            verdict=SYMBOL_HUNK_CAUSAL
+          elif [[ "$steam_stripped" == *"MAIN=no"* && "$spotlight_stripped" == *"MAIN=no"* ]]; then
+            verdict=SYMBOL_HUNK_NOT_SUFFICIENT
+          fi
+          {
+            echo "STATUS=DIAGNOSTIC"
+            echo "GATE=M3_AROS_HUNK_SYMBOL_STRIP"
+            echo "VERDICT=$verdict"
+          } >> "$OUT/result.txt"
+          cat "$OUT/result.txt"
+
+      - name: Upload HUNK symbol strip diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-hunk-symbol-strip
+          path: |
+            build-amiga-symbol-strip/symbol-strip-build-report.txt
+            build-amiga-symbol-strip/symbol-strip-manifest.tsv
+            build-amiga-symbol-strip/*-original
+            build-amiga-symbol-strip/*-stripped
+            build-amiga-symbol-strip/*-original.map
+            build/fs-uae/aros-symbol-strip/result.txt
+            build/fs-uae/aros-symbol-strip/fs-uae-*.log
+          if-no-files-found: warn

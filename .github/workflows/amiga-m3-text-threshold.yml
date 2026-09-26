@@ -1,0 +1,129 @@
+name: Amiga M3 text HUNK threshold diagnostics
+
+on:
+  push:
+    branches: [amiga-m3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  text-threshold:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl lhasa p7zip-full unzip
+
+      - name: Build controlled text-size probes
+        run: |
+          mkdir -p build-amiga-text
+          docker run --rm -v "$PWD:/work" -w /work/build-amiga-text \
+            ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+              set -eux
+              CC=/opt/amiga/bin/m68k-amigaos-gcc
+              AS=/opt/amiga/bin/m68k-amigaos-as
+              SIZE=/opt/amiga/bin/m68k-amigaos-size
+              OBJDUMP=/opt/amiga/bin/m68k-amigaos-objdump
+              BASE="-m68020 -msoft-float -noixemul"
+              printf "%s\n" \
+                "#include <stdio.h>" \
+                "#ifndef PROBE_KIB" \
+                "#define PROBE_KIB 0" \
+                "#endif" \
+                "#define STR2(x) #x" \
+                "#define STR(x) STR2(x)" \
+                "int main(void)" \
+                "{" \
+                "    FILE *f = fopen(\"SYS:save/m3-text-\" STR(PROBE_KIB) \".txt\", \"w\");" \
+                "    if (f) { fputs(\"PASS TEXT_KIB=\" STR(PROBE_KIB) \"\\n\", f); fclose(f); }" \
+                "    return 0;" \
+                "}" > text-main.c
+
+              : > text-build-report.txt
+              for kib in 384 448 480 496 508 512 516 520 544 576 640 704 736 752 768 832 896 1024 1152 1280 1408 1536 1600 1664 1728 1792 1856 1920; do
+                bytes=$((kib * 1024))
+                printf ".text\n.globl _m3_text_pad_%s\n_m3_text_pad_%s:\n    .space %s,0x4e\n    rts\n" "$kib" "$kib" "$bytes" > "text-${kib}.s"
+                $AS "text-${kib}.s" -o "text-${kib}.o"
+                $CC $BASE -DPROBE_KIB=$kib text-main.c "text-${kib}.o" -Wl,-Map,"text-${kib}.map" -o "text-${kib}-probe"
+                echo "=== text-${kib}-probe ===" >> text-build-report.txt
+                $SIZE -A "text-${kib}-probe" >> text-build-report.txt || true
+                $OBJDUMP -h "text-${kib}-probe" >> text-build-report.txt || true
+              done
+              cat text-build-report.txt
+            '
+
+      - name: Run text-size probes inside isolated AROS guests
+        run: |
+          set -euo pipefail
+          OUT=build/fs-uae/aros-text-threshold
+          SYSROOT=build/fs-uae/aros-system
+          mkdir -p "$OUT"
+          chmod +x ci/fs-uae/fetch-aros-system.sh
+          iso="$(ci/fs-uae/fetch-aros-system.sh "$SYSROOT" | tail -n 1)"
+          template="$OUT/template-root"
+          rm -rf "$template"
+          mkdir -p "$template"
+          7z x -y -o"$template" "$iso" >/dev/null
+          template_startup="$(find "$template" -type f -ipath '*/s/startup-sequence' -print -quit)"
+          test -n "$template_startup"
+          template_aros="$(dirname "$(dirname "$template_startup")")"
+
+          : > "$OUT/result.txt"
+          first_failure=none
+          for kib in 384 448 480 496 508 512 516 520 544 576 640 704 736 752 768 832 896 1024 1152 1280 1408 1536 1600 1664 1728 1792 1856 1920; do
+            root="$OUT/root-${kib}"
+            rm -rf "$root"
+            cp -a "$template" "$root"
+            startup="$(find "$root" -type f -ipath '*/s/startup-sequence' -print -quit)"
+            aros_root="$(dirname "$(dirname "$startup")")"
+            mkdir -p "$aros_root/save"
+            cp "build-amiga-text/text-${kib}-probe" "$aros_root/text-${kib}-probe"
+            cp "$startup" "$startup.m3-text-original"
+            cat > "$startup" <<EOF
+          SYS:C/Echo "BEFORE=${kib}" >SYS:m3-text-before-${kib}.txt
+          SYS:C/Stack 262144
+          SYS:text-${kib}-probe
+          SYS:C/Echo \$RC >SYS:m3-text-rc-${kib}.txt
+          SYS:C/Echo "AFTER=${kib}" >SYS:m3-text-after-${kib}.txt
+          EOF
+            config="$OUT/text-${kib}.fs-uae"
+            sed "s|@AROS_ROOT@|$PWD/$aros_root|" ci/fs-uae/aros-guest.fs-uae > "$config"
+            set +e
+            timeout --signal=TERM --kill-after=3s 20s xvfb-run -a fs-uae "$config" > "$OUT/fs-uae-${kib}.log" 2>&1
+            fsuae_rc=$?
+            set -e
+            before=no; main=no; after=no; rc=missing
+            test -f "$aros_root/m3-text-before-${kib}.txt" && before=yes
+            test -f "$aros_root/save/m3-text-${kib}.txt" && main=yes
+            test -f "$aros_root/m3-text-after-${kib}.txt" && after=yes
+            test -f "$aros_root/m3-text-rc-${kib}.txt" && rc="$(tr -d '\r\n' < "$aros_root/m3-text-rc-${kib}.txt")"
+            actual_text="$(awk '$1==".text" {print $2; exit}' < <(docker run --rm -v "$PWD:/work" -w /work/build-amiga-text ozzyboshi/bebbo-amiga-gcc:latest /opt/amiga/bin/m68k-amigaos-size -A "text-${kib}-probe"))"
+            echo "TEXT_${kib}_KIB_ACTUAL=$actual_text BEFORE=$before MAIN=$main AFTER=$after RC=$rc FS_UAE_EXIT=$fsuae_rc" | tee -a "$OUT/result.txt"
+            if [[ "$main" != yes || "$after" != yes || "$rc" != 0 ]]; then
+              if [[ "$first_failure" == none ]]; then first_failure="$kib"; fi
+            fi
+          done
+          {
+            echo "STATUS=DIAGNOSTIC"
+            echo "GATE=M3_AROS_TEXT_HUNK_THRESHOLD"
+            echo "FIRST_FAILURE_KIB=$first_failure"
+          } >> "$OUT/result.txt"
+          cat "$OUT/result.txt"
+
+      - name: Upload text threshold diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-text-hunk-threshold
+          path: |
+            build-amiga-text/text-build-report.txt
+            build-amiga-text/text-*.map
+            build/fs-uae/aros-text-threshold/result.txt
+            build/fs-uae/aros-text-threshold/fs-uae-*.log
+          if-no-files-found: warn

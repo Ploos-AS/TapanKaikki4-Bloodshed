@@ -1,0 +1,24 @@
+name: Amiga M3 leave-one-out runtime
+on:
+  push: {branches: [amiga-m3]}
+  pull_request: {branches: [amiga-m2]}
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  drop-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+      - run: chmod +x ci/fs-uae/build-object-drop-runtime.sh && ci/fs-uae/build-object-drop-runtime.sh
+      - run: chmod +x ci/fs-uae/run-aros-object-drop-runtime.sh && ci/fs-uae/run-aros-object-drop-runtime.sh
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-leave-one-out-runtime
+          path: |
+            build-amiga-drop/manifest.tsv
+            build-amiga-drop/*.link.txt
+            build/fs-uae/aros-m3-drop/result.txt
+            build/fs-uae/aros-m3-drop/*/fs-uae.log

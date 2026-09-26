@@ -1,0 +1,52 @@
+name: Amiga M3 high relocation offset diagnostics
+
+on:
+  push:
+    branches:
+      - amiga-m3
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  csteam-constructor-bisect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+
+      - name: Build CSteam constructor bisect probes
+        run: |
+          chmod +x ci/fs-uae/build-csteam-constructor-bisect.sh
+          ci/fs-uae/build-csteam-constructor-bisect.sh
+
+      - name: Inspect constructor probe HUNK layouts
+        run: |
+          : > build-amiga-tu-out/hunk-report.txt
+          for f in build-amiga-tu-out/*-probe; do
+            echo "=== $f ===" | tee -a build-amiga-tu-out/hunk-report.txt
+            python3 tools/amiga_hunk_inspect.py "$f" | tee -a build-amiga-tu-out/hunk-report.txt
+          done
+
+      - name: Run constructor bisect probes inside AROS
+        run: |
+          chmod +x ci/fs-uae/*.sh
+          ci/fs-uae/run-aros-tu-perturbation.sh
+
+      - name: Upload constructor bisect diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-csteam-constructor-bisect
+          path: |
+            build-amiga-tu-out/*
+            build/fs-uae/aros-m3-tu/result.txt
+            build/fs-uae/aros-m3-tu/*/result.txt
+            build/fs-uae/aros-m3-tu/*/fs-uae.log
+          if-no-files-found: warn

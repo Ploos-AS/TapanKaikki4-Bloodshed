@@ -1,0 +1,162 @@
+name: Amiga M3 relocation density matrix
+
+on:
+  push:
+    branches: [amiga-m3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reloc-density-matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl lhasa p7zip-full unzip
+
+      - name: Generate controlled assembly matrix
+        run: |
+          set -euo pipefail
+          mkdir -p build-amiga-reloc-density
+          for size in 384 744; do
+            for relocs in 1000 4000 8000 10400; do
+              python3 tools/gen_amiga_reloc_density_probe.py \
+                --code-kib "$size" \
+                --relocs "$relocs" \
+                --output "build-amiga-reloc-density/density-${size}-${relocs}.s"
+            done
+          done
+
+      - name: Build relocation density probes
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work/build-amiga-reloc-density \
+            ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+              set -eux
+              CC=/opt/amiga/bin/m68k-amigaos-gcc
+              AS=/opt/amiga/bin/m68k-amigaos-as
+              SIZE=/opt/amiga/bin/m68k-amigaos-size
+              BASE="-m68020 -msoft-float -noixemul"
+
+              printf "%s\n" \
+                "#include <stdio.h>" \
+                "#ifndef PROBE_NAME" \
+                "#define PROBE_NAME unknown" \
+                "#endif" \
+                "#define STR2(x) #x" \
+                "#define STR(x) STR2(x)" \
+                "int main(void)" \
+                "{" \
+                " FILE *f=fopen(\"SYS:save/m3-density-\" STR(PROBE_NAME) \".txt\",\"w\");" \
+                " if(f){fputs(\"PASS PROBE=\" STR(PROBE_NAME) \"\\n\",f);fclose(f);}" \
+                " return 0;" \
+                "}" > main.c
+
+              : > build-report.txt
+              for size in 384 744; do
+                for relocs in 1000 4000 8000 10400; do
+                  name="${size}-${relocs}"
+                  $AS "density-${name}.s" -o "density-${name}.o"
+                  $CC $BASE -DPROBE_NAME=$name main.c "density-${name}.o" -o "density-${name}-probe"
+                  echo "=== density-${name}-probe ===" >> build-report.txt
+                  $SIZE -A "density-${name}-probe" >> build-report.txt || true
+                done
+              done
+              cat build-report.txt
+            '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-reloc-density
+
+      - name: Inspect generated HUNK matrix
+        run: |
+          set -euo pipefail
+          : > build-amiga-reloc-density/hunk-report.txt
+          for size in 384 744; do
+            for relocs in 1000 4000 8000 10400; do
+              name="${size}-${relocs}"
+              echo "=== MATRIX=$name ===" | tee -a build-amiga-reloc-density/hunk-report.txt
+              python3 tools/amiga_hunk_inspect.py "build-amiga-reloc-density/density-${name}-probe" | tee -a build-amiga-reloc-density/hunk-report.txt
+            done
+          done
+
+      - name: Run relocation density matrix inside AROS
+        run: |
+          set -euo pipefail
+          OUT=build/fs-uae/aros-reloc-density
+          SYSROOT=build/fs-uae/aros-system
+          mkdir -p "$OUT"
+          chmod +x ci/fs-uae/fetch-aros-system.sh
+          iso="$(ci/fs-uae/fetch-aros-system.sh "$SYSROOT" | tail -n 1)"
+          root="$OUT/system-root"
+          rm -rf "$root" && mkdir -p "$root"
+          7z x -y -o"$root" "$iso" >/dev/null
+          startup="$(find "$root" -type f -ipath '*/s/startup-sequence' -print -quit)"
+          test -n "$startup"
+          aros_root="$(dirname "$(dirname "$startup")")"
+          mkdir -p "$aros_root/save"
+          for size in 384 744; do
+            for relocs in 1000 4000 8000 10400; do
+              name="${size}-${relocs}"
+              cp "build-amiga-reloc-density/density-${name}-probe" "$aros_root/"
+            done
+          done
+          cp "$startup" "$startup.m3-density-original"
+          {
+            echo 'SYS:C/Echo "M3_RELOC_DENSITY_STARTED=1" >SYS:m3-reloc-density-started.txt'
+            echo 'SYS:C/Stack 262144'
+            for size in 384 744; do
+              for relocs in 1000 4000 8000 10400; do
+                name="${size}-${relocs}"
+                echo "SYS:C/Echo \"BEFORE=$name\" >SYS:m3-density-before-${name}.txt"
+                echo "SYS:density-${name}-probe"
+                echo "SYS:C/Echo \$RC >SYS:m3-density-rc-${name}.txt"
+                echo "SYS:C/Echo \"AFTER=$name\" >SYS:m3-density-after-${name}.txt"
+              done
+            done
+            echo 'SYS:C/Echo "M3_RELOC_DENSITY_COMPLETE=1" >SYS:m3-reloc-density-complete.txt'
+            echo 'SYS:C/Execute SYS:S/Startup-Sequence.m3-density-original'
+          } > "$startup"
+          config="$OUT/aros-guest.fs-uae"
+          sed "s|@AROS_ROOT@|$PWD/$aros_root|" ci/fs-uae/aros-guest.fs-uae > "$config"
+          set +e
+          timeout --signal=TERM --kill-after=5s 55s xvfb-run -a fs-uae "$config" > "$OUT/fs-uae.log" 2>&1
+          fsuae_rc=$?
+          set -e
+
+          : > "$OUT/result.txt"
+          first_failure=none
+          for size in 384 744; do
+            for relocs in 1000 4000 8000 10400; do
+              name="${size}-${relocs}"
+              before=no; main=no; after=no; rc=missing
+              test -f "$aros_root/m3-density-before-${name}.txt" && before=yes
+              test -f "$aros_root/save/m3-density-${name}.txt" && main=yes
+              test -f "$aros_root/m3-density-after-${name}.txt" && after=yes
+              test -f "$aros_root/m3-density-rc-${name}.txt" && rc="$(tr -d '\r\n' < "$aros_root/m3-density-rc-${name}.txt")"
+              echo "MATRIX_${name} BEFORE=$before MAIN=$main AFTER=$after RC=$rc" >> "$OUT/result.txt"
+              if [[ "$main" != yes || "$after" != yes || "$rc" != 0 ]]; then
+                [[ "$first_failure" == none ]] && first_failure="$name"
+              fi
+            done
+          done
+          echo "GATE=M3_AROS_RELOCATION_DENSITY_MATRIX" >> "$OUT/result.txt"
+          echo "FS_UAE_EXIT=$fsuae_rc" >> "$OUT/result.txt"
+          echo "FIRST_FAILURE=$first_failure" >> "$OUT/result.txt"
+          cat "$OUT/result.txt"
+
+      - name: Upload relocation density diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-relocation-density-matrix
+          path: |
+            build-amiga-reloc-density/*-probe
+            build-amiga-reloc-density/build-report.txt
+            build-amiga-reloc-density/hunk-report.txt
+            build/fs-uae/aros-reloc-density/result.txt
+            build/fs-uae/aros-reloc-density/fs-uae.log
+          if-no-files-found: warn

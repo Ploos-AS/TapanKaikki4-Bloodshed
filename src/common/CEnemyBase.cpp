@@ -1,6 +1,13 @@
 #include <stdlib.h>
-#include "CLevel.h"
 #include "CEnemyBase.h"
+
+namespace
+{
+	// CLevel.h defines KBlockSpriteSize as 20. CEnemyBase only needs the
+	// resulting default sight distance; pulling the full CLevel header into
+	// this translation unit produces an Amiga/AROS pre-main loader failure.
+	const int KDefaultEnemySightDistance = 10 * 20;
+}
 
 CEnemyBase::CEnemyBase()
 {
@@ -12,7 +19,7 @@ CEnemyBase::CEnemyBase()
 	iEnergy=0;
 	iReward=0;
 	iExplosionDeath=0;
-	iSightDistance=10*KBlockSpriteSize;
+	iSightDistance=KDefaultEnemySightDistance;
 }
 
 const char* CEnemyBase::Name() const

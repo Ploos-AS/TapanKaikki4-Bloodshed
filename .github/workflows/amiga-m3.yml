@@ -1,0 +1,157 @@
+name: Amiga M3 playable baseline
+
+on:
+  push:
+    branches: [amiga-m3]
+  pull_request:
+    branches: [amiga-m2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fs-uae-aros-playable-baseline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl lhasa file p7zip-full unzip
+
+      - name: Cross-build tk4 with Bebbo GCC
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            ozzyboshi/bebbo-amiga-gcc:latest \
+            bash -lc '
+              set -eux
+              if ! command -v cmake >/dev/null 2>&1; then
+                apt-get update
+                DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
+              fi
+              rm -rf build-amiga
+              mkdir build-amiga
+              cd build-amiga
+              cmake .. \
+                -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake \
+                -DTK4_AMIGA=ON \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL \
+                -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
+                -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL \
+                -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a \
+                -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include \
+                -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              cmake --build . -- -j2
+
+              CC=/opt/amiga/bin/m68k-amigaos-gcc
+              CXX=/opt/amiga/bin/m68k-amigaos-g++
+              BASE="-m68020 -msoft-float -noixemul"
+              SDL_INC="-I/opt/amiga/m68k-amigaos/include/SDL"
+              IMAGE_INC="-I/opt/amiga/SDL_image-pack/include/SDL"
+              MIXER_INC="-I/opt/amiga/SDL_mixer/include"
+              SDL_LIB=/opt/amiga/m68k-amigaos/lib/libSDL.a
+              IMAGE_LIB=/opt/amiga/SDL_image-pack/lib/libSDL_image.a
+              MIXER_LIB=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              JPEG_LIB=/opt/amiga/SDL_image-pack/lib/libjpeg.a
+              PNG_LIB=/opt/amiga/SDL_image-pack/lib/libpng.a
+              Z_LIB=/opt/amiga/zlib-package/lib/libz.a
+
+              $CC $BASE ../ci/fs-uae/loader-probe.c -o loader-probe
+              $CXX $BASE ../ci/fs-uae/cxx-init-probe.cpp -o cxx-init-probe
+              $CXX $BASE $SDL_INC ../ci/fs-uae/sdl-startup-probe.cpp $SDL_LIB -lpthread -o sdl-startup-probe
+
+              $CXX $BASE $SDL_INC ../ci/fs-uae/tk4-link-probe.cpp \
+                $SDL_LIB -lpthread -o link-sdl-probe
+              $CXX $BASE $SDL_INC $IMAGE_INC -DPROBE_IMAGE ../ci/fs-uae/tk4-link-probe.cpp \
+                $IMAGE_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread -o link-image-probe
+              $CXX $BASE $SDL_INC $MIXER_INC -DPROBE_MIXER ../ci/fs-uae/tk4-link-probe.cpp \
+                $MIXER_LIB $SDL_LIB -lpthread -o link-mixer-probe
+              $CXX $BASE $SDL_INC $IMAGE_INC $MIXER_INC -DPROBE_IMAGE -DPROBE_MIXER ../ci/fs-uae/tk4-link-probe.cpp \
+                $IMAGE_LIB $MIXER_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread -o link-full-probe
+
+              $CXX $BASE -c ../ci/fs-uae/tk4-object-probe.cpp -o tk4-object-probe-main.o
+              mapfile -t TK4_OBJS < <(find CMakeFiles/tk4.dir -type f -name "*.obj" ! -path "*/main.cpp.obj" | sort)
+              $CXX $BASE tk4-object-probe-main.o "${TK4_OBJS[@]}" libtk4-common.a \
+                $IMAGE_LIB $MIXER_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread \
+                -o tk4-object-full-probe
+
+              # Build leave-one-out variants of the failing full object-set probe.
+              : > object-drop-link-report.txt
+              for drop in "${!TK4_OBJS[@]}"; do
+                drop_obj="${TK4_OBJS[$drop]}"
+                drop_member="${drop_obj#CMakeFiles/tk4.dir/src/}"
+                id="$(printf "%03d" "$drop")"
+                KEEP_OBJS=()
+                for i in "${!TK4_OBJS[@]}"; do
+                  [ "$i" -eq "$drop" ] || KEEP_OBJS+=("${TK4_OBJS[$i]}")
+                done
+                set +e
+                $CXX $BASE tk4-object-probe-main.o "${KEEP_OBJS[@]}" libtk4-common.a \
+                  $IMAGE_LIB $MIXER_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread \
+                  -o "tk4-object-drop-${id}-probe" 2>"tk4-object-drop-${id}.link.txt"
+                rc=$?
+                set -e
+                printf "%s\\t%s\\tRC=%s\\n" "$id" "$drop_member" "$rc" | tee -a object-drop-link-report.txt
+              done
+
+              : > binary-size-report.txt
+              for bin in tk4 loader-probe cxx-init-probe sdl-startup-probe link-sdl-probe link-image-probe link-mixer-probe link-full-probe tk4-object-full-probe; do
+                /opt/amiga/bin/m68k-amigaos-objdump -f "$bin" > "$bin-objdump.txt"
+                echo "=== $bin ===" >> binary-size-report.txt
+                stat -c "BYTES=%s" "$bin" >> binary-size-report.txt
+                /opt/amiga/bin/m68k-amigaos-size -A "$bin" >> binary-size-report.txt || true
+              done
+              cat binary-size-report.txt
+
+              : > tk4-static-init-report.txt
+              echo "=== TK4 object files with pre-main/static initializers ===" | tee -a tk4-static-init-report.txt
+              while IFS= read -r obj; do
+                syms="$(/opt/amiga/bin/m68k-amigaos-nm -C "$obj" 2>/dev/null | grep -E "_GLOBAL__sub_I|__static_initialization_and_destruction_0|\.ctors|\.init_array" || true)"
+                if [ -n "$syms" ]; then
+                  echo "OBJECT=$obj" | tee -a tk4-static-init-report.txt
+                  printf "%s\n" "$syms" | tee -a tk4-static-init-report.txt
+                fi
+              done < <(find CMakeFiles/tk4.dir CMakeFiles/tk4-common.dir -type f \( -name "*.obj" -o -name "*.o" \) | sort)
+              echo "=== Linked executable static-init symbols ===" | tee -a tk4-static-init-report.txt
+              /opt/amiga/bin/m68k-amigaos-nm -C tk4 2>/dev/null | grep -E "_GLOBAL__sub_I|__static_initialization_and_destruction_0" | tee -a tk4-static-init-report.txt || true
+              cat tk4-static-init-report.txt
+            '
+
+      - name: Execute playable-baseline gate inside AROS guest
+        run: |
+          chmod +x ci/fs-uae/*.sh
+          ci/fs-uae/run-aros-playable-smoke.sh
+
+      - name: Upload M3 qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-amiga-m3-playable-baseline
+          path: |
+            build-amiga/tk4
+            build-amiga/loader-probe
+            build-amiga/cxx-init-probe
+            build-amiga/sdl-startup-probe
+            build-amiga/link-*-probe
+            build-amiga/tk4-object-full-probe
+            build-amiga/object-drop-link-report.txt
+            build-amiga/tk4-object-drop-*.link.txt
+            build-amiga/*-objdump.txt
+            build-amiga/binary-size-report.txt
+            build-amiga/tk4-static-init-report.txt
+            build/fs-uae/aros-system/source.txt
+            build/fs-uae/aros-system/archive.sha256
+            build/fs-uae/aros-m3/result.txt
+            build/fs-uae/aros-m3/fs-uae.log
+            build/fs-uae/aros-m3/fs-uae-version.txt
+            build/fs-uae/aros-m3/aros-guest.fs-uae
+            build/fs-uae/aros-m3/system-root/**/tk4-m3-*.txt
+            build/fs-uae/aros-m3/system-root/**/save/m3-*.txt
+          if-no-files-found: warn
