@@ -1,0 +1,29 @@
+name: Amiga M3 vlink startup compatibility
+on:
+  push:
+    branches: [amiga-m3]
+    paths:
+      - '.github/workflows/amiga-m3-vlink-startup-probe.yml'
+  workflow_dispatch:
+jobs:
+  startup:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/bebbo/amiga-gcc:latest
+    steps:
+      - name: Inspect vlink and libnix startup objects
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p build-amiga-vlink-startup
+          /opt/amiga/bin/vlink -h > build-amiga-vlink-startup/vlink-help.txt 2>&1 || true
+          find /opt/amiga -type f \( -name 'ncrt0.o' -o -name '*crt0*.o' \) -print | sort > build-amiga-vlink-startup/startup-objects.txt
+          while IFS= read -r f; do
+            echo "=== $f ==="
+            /opt/amiga/bin/m68k-amigaos-objdump -h "$f" || true
+          done < build-amiga-vlink-startup/startup-objects.txt > build-amiga-vlink-startup/startup-objdump.txt 2>&1
+          grep -Ei 'debug|hunk|strip|ignore|amiga|format' build-amiga-vlink-startup/vlink-help.txt > build-amiga-vlink-startup/relevant-options.txt || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-vlink-startup-compat
+          path: build-amiga-vlink-startup/
