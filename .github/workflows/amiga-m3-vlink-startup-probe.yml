@@ -7,23 +7,24 @@ on:
   workflow_dispatch:
 jobs:
   startup:
-    runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/bebbo/amiga-gcc:latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Inspect vlink and libnix startup objects
-        shell: bash
         run: |
-          set -euxo pipefail
           mkdir -p build-amiga-vlink-startup
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+          set -euxo pipefail
           /opt/amiga/bin/vlink -h > build-amiga-vlink-startup/vlink-help.txt 2>&1 || true
-          find /opt/amiga -type f \( -name 'ncrt0.o' -o -name '*crt0*.o' \) -print | sort > build-amiga-vlink-startup/startup-objects.txt
+          find /opt/amiga -type f \( -name "ncrt0.o" -o -name "*crt0*.o" \) -print | sort > build-amiga-vlink-startup/startup-objects.txt
           while IFS= read -r f; do
             echo "=== $f ==="
             /opt/amiga/bin/m68k-amigaos-objdump -h "$f" || true
           done < build-amiga-vlink-startup/startup-objects.txt > build-amiga-vlink-startup/startup-objdump.txt 2>&1
-          grep -Ei 'debug|hunk|strip|ignore|amiga|format' build-amiga-vlink-startup/vlink-help.txt > build-amiga-vlink-startup/relevant-options.txt || true
+          grep -Ei "debug|hunk|strip|ignore|amiga|format" build-amiga-vlink-startup/vlink-help.txt > build-amiga-vlink-startup/relevant-options.txt || true
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-startup
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: tk4-m3-vlink-startup-compat
           path: build-amiga-vlink-startup/
