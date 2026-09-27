@@ -37,6 +37,7 @@ jobs:
             build-amiga-vlink-full/report.txt
             build-amiga-vlink-full/*-link.txt
             build-amiga-vlink-full/vlink-wrapper.txt
+            build-amiga-vlink-full/vlink-ncrt0-inspect.txt
             build/fs-uae/aros-m3-vlink-full/result.txt
             build/fs-uae/aros-m3-vlink-full/*/fs-uae.log
           if-no-files-found: warn
