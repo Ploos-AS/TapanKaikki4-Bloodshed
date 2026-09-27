@@ -25,7 +25,8 @@ for arg in "$@"; do
         idx=$((idx + 1))
         adir="$STRIP_DIR/archive-$(printf '%04d' "$idx")"
         mkdir -p "$adir"
-        ( cd "$adir" && /opt/amiga/bin/m68k-amigaos-ar x "$arg" )
+        archive_abs="$(readlink -f "$arg")"
+        ( cd "$adir" && /opt/amiga/bin/m68k-amigaos-ar x "$archive_abs" )
         for member in "$adir"/*; do
           [ -f "$member" ] || continue
           /opt/amiga/bin/m68k-amigaos-objcopy --remove-section=.stab --remove-section=.stabstr "$member" "$member.stripped"
