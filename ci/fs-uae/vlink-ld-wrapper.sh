@@ -9,8 +9,6 @@ for arg in "$@"; do
   if [ "$skip_next" -eq 1 ]; then
     skip_next=0
     if [ "$arg" = "libm020" ]; then
-      # GCC/collect2 flavor selector. Its libm020 search directories are
-      # already supplied separately through -L, so vlink does not need it.
       continue
     fi
     args+=("-fl" "$arg")
@@ -19,6 +17,11 @@ for arg in "$@"; do
   case "$arg" in
     '-('|'-)') continue ;;
     -fl) skip_next=1 ;;
+    */libnix/lib/ncrt0.o)
+      stripped="${TK4_VLINK_STRIPPED_NCRT0:-/tmp/tk4-vlink-ncrt0.o}"
+      /opt/amiga/bin/m68k-amigaos-objcopy --remove-section=.stab --remove-section=.stabstr "$arg" "$stripped"
+      args+=("$stripped")
+      ;;
     *) args+=("$arg") ;;
   esac
 done
