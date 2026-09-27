@@ -4,7 +4,7 @@ REAL_VLINK=/opt/amiga/bin/vlink
 LOG=${TK4_VLINK_WRAPPER_LOG:-/tmp/tk4-vlink-wrapper.log}
 STRIP_DIR=${TK4_VLINK_STRIP_DIR:-/tmp/tk4-vlink-stripped}
 mkdir -p "$STRIP_DIR"
-args=()
+args=(-broken-debug)
 skip_next=0
 idx=0
 printf 'RAW:' >>"$LOG"; printf ' %q' "$@" >>"$LOG"; printf '\n' >>"$LOG"
