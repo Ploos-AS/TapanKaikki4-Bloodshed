@@ -15,7 +15,8 @@ BASE="-m68020 -msoft-float -noixemul"
 LIBS="/opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a /opt/amiga/m68k-amigaos/lib/libSDL.a /opt/amiga/SDL_image-pack/lib/libjpeg.a /opt/amiga/SDL_image-pack/lib/libpng.a /opt/amiga/zlib-package/lib/libz.a -lpthread"
 mapfile -t OBJS < <(find build-amiga-vlink-full/base/CMakeFiles/tk4.dir -type f -name "*.obj" ! -path "*/main.cpp.obj" | sort)
 $CXX $BASE -c ci/fs-uae/tk4-object-probe.cpp -o build-amiga-vlink-full/main.o
-cp ci/fs-uae/vlink-ld-wrapper.sh build-amiga-vlink-full/bin/ld\nchmod +x build-amiga-vlink-full/bin/ld
+cp ci/fs-uae/vlink-ld-wrapper.sh build-amiga-vlink-full/bin/ld
+chmod +x build-amiga-vlink-full/bin/ld
 : > build-amiga-vlink-full/report.txt
 set +e
 $CXX $BASE build-amiga-vlink-full/main.o "${OBJS[@]}" build-amiga-vlink-full/base/libtk4-common.a $LIBS -o build-amiga-vlink-full/full-gnu 2>build-amiga-vlink-full/gnu-link.txt
