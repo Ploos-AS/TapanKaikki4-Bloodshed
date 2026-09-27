@@ -23,6 +23,10 @@ $CXX $BASE build-amiga-vlink-full/main.o "${OBJS[@]}" build-amiga-vlink-full/bas
 gnu_rc=$?
 TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-wrapper.txt" $CXX $BASE -B"$PWD/build-amiga-vlink-full/bin/" build-amiga-vlink-full/main.o "${OBJS[@]}" build-amiga-vlink-full/base/libtk4-common.a $LIBS -o build-amiga-vlink-full/full-vlink 2>build-amiga-vlink-full/vlink-link.txt
 vlink_rc=$?
+echo "=== vlink stderr ==="
+cat build-amiga-vlink-full/vlink-link.txt || true
+echo "=== vlink wrapper argv ==="
+cat build-amiga-vlink-full/vlink-wrapper.txt || true
 set -e
 printf "OBJECT_COUNT=%s\nGNU_LINK_RC=%s\nVLINK_LINK_RC=%s\n" "${#OBJS[@]}" "$gnu_rc" "$vlink_rc" >> build-amiga-vlink-full/report.txt
 [ "$gnu_rc" -eq 0 ] || rm -f build-amiga-vlink-full/full-gnu
