@@ -16,6 +16,7 @@ jobs:
           set -euxo pipefail
           mkdir -p build-amiga-modern-vlink
           git clone --depth=1 https://github.com/8l/vlink.git build-amiga-modern-vlink/src
+          mkdir -p build-amiga-modern-vlink/src/objects
           make -C build-amiga-modern-vlink/src
           build-amiga-modern-vlink/src/vlink -v > build-amiga-modern-vlink/version.txt 2>&1 || true
           build-amiga-modern-vlink/src/vlink -h > build-amiga-modern-vlink/help.txt 2>&1 || true
