@@ -15,7 +15,8 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p build-amiga-modern-vlink
-          git clone --depth=1 https://github.com/8l/vlink.git build-amiga-modern-vlink/src
+          git clone --depth=1 https://github.com/siemens-mobile-hacks/vlink.git build-amiga-modern-vlink/src
+          git -C build-amiga-modern-vlink/src rev-parse HEAD > build-amiga-modern-vlink/source-commit.txt
           mkdir -p build-amiga-modern-vlink/src/objects
           make -C build-amiga-modern-vlink/src
           build-amiga-modern-vlink/src/vlink -v > build-amiga-modern-vlink/version.txt 2>&1 || true
@@ -23,6 +24,8 @@ jobs:
           grep -Ei 'broken|debug|hunk|amiga|format' build-amiga-modern-vlink/help.txt > build-amiga-modern-vlink/relevant-options.txt || true
           cat build-amiga-modern-vlink/version.txt
           cat build-amiga-modern-vlink/relevant-options.txt
+          grep -Rni -- '-broken-debug' build-amiga-modern-vlink/src > build-amiga-modern-vlink/broken-debug-source.txt || true
+          cat build-amiga-modern-vlink/broken-debug-source.txt || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
