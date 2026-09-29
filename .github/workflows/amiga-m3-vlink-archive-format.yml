@@ -1,0 +1,44 @@
+name: Amiga M3 vlink archive format diagnostics
+on:
+  push:
+    branches: [amiga-m3]
+    paths:
+      - '.github/workflows/amiga-m3-vlink-archive-format.yml'
+  workflow_dispatch:
+jobs:
+  archive-format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect Bebbo SDL archive members
+        run: |
+          set -euxo pipefail
+          mkdir -p build-amiga-vlink-archive
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -euo pipefail
+            OUT=build-amiga-vlink-archive
+            : > "$OUT/report.txt"
+            for a in /opt/amiga/m68k-amigaos/lib/libSDL.a /opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a /opt/amiga/SDL_image-pack/lib/libjpeg.a /opt/amiga/SDL_image-pack/lib/libpng.a /opt/amiga/zlib-package/lib/libz.a; do
+              n=$(basename "$a")
+              d="$OUT/$n.members"
+              mkdir -p "$d"
+              cp "$a" "$OUT/$n"
+              /opt/amiga/bin/m68k-amigaos-ar t "$a" > "$OUT/$n.list.txt"
+              (cd "$d" && /opt/amiga/bin/m68k-amigaos-ar x "$a")
+              printf "ARCHIVE=%s\n" "$a" >> "$OUT/report.txt"
+              printf "MEMBERS=%s\n" "$(find "$d" -type f | wc -l)" >> "$OUT/report.txt"
+              i=0
+              for f in "$d"/*; do
+                [ -f "$f" ] || continue
+                i=$((i+1))
+                /opt/amiga/bin/m68k-amigaos-objdump -f "$f" >> "$OUT/$n.objdump.txt" 2>&1 || printf "OBJDUMP_FAIL=%s\n" "$(basename "$f")" >> "$OUT/report.txt"
+                [ "$i" -ge 20 ] && break
+              done
+            done
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-archive
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tk4-m3-vlink-archive-format
+          path: build-amiga-vlink-archive/
