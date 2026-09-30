@@ -24,6 +24,29 @@ jobs:
         run: |
           chmod +x ci/fs-uae/build-vlink-full-object-probe.sh
           ci/fs-uae/build-vlink-full-object-probe.sh
+      - name: Inspect SDL archive formats for vlink
+        run: |
+          mkdir -p build-amiga-vlink-full/archive-format
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -euo pipefail
+            OUT=build-amiga-vlink-full/archive-format
+            : > "$OUT/report.txt"
+            for a in /opt/amiga/m68k-amigaos/lib/libSDL.a /opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a; do
+              n=$(basename "$a")
+              d="$OUT/$n.members"
+              mkdir -p "$d"
+              /opt/amiga/bin/m68k-amigaos-ar t "$a" > "$OUT/$n.list.txt"
+              (cd "$d" && /opt/amiga/bin/m68k-amigaos-ar x "$a")
+              echo "ARCHIVE=$a" >> "$OUT/report.txt"
+              for f in "$d"/*; do
+                [ -f "$f" ] || continue
+                printf "%s: " "$(basename "$f")" >> "$OUT/report.txt"
+                /opt/amiga/bin/m68k-amigaos-objdump -f "$f" 2>&1 | grep -m1 "file format" >> "$OUT/report.txt" || echo "UNRECOGNIZED" >> "$OUT/report.txt"
+              done
+            done
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/archive-format
+          cat build-amiga-vlink-full/archive-format/report.txt
       - name: Run both probes inside AROS
         run: |
           chmod +x ci/fs-uae/*.sh
@@ -38,6 +61,7 @@ jobs:
             build-amiga-vlink-full/*-link.txt
             build-amiga-vlink-full/vlink-wrapper.txt
             build-amiga-vlink-full/vlink-ncrt0-inspect.txt
+            build-amiga-vlink-full/archive-format/
             build/fs-uae/aros-m3-vlink-full/result.txt
             build/fs-uae/aros-m3-vlink-full/*/fs-uae.log
           if-no-files-found: warn
