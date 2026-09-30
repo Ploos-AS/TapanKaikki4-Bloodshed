@@ -4,6 +4,7 @@ on:
     branches: [amiga-m3]
     paths:
       - '.github/workflows/amiga-m3-vlink-archive-format.yml'
+      - 'ci/fs-uae/vlink-ld-wrapper.sh'
   workflow_dispatch:
 jobs:
   archive-format:
