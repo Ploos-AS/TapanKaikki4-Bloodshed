@@ -1,5 +1,5 @@
 name: Amiga M3 vlink archive format diagnostics
-on:
+'on':
   push:
     branches: [amiga-m3]
     paths:
