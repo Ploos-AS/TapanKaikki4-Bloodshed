@@ -12,7 +12,7 @@ cmake --build . -- -j2
 cd ../..
 CXX=/opt/amiga/bin/m68k-amigaos-g++
 BASE="-m68020 -msoft-float -noixemul"
-LIBS="/opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a /opt/amiga/m68k-amigaos/lib/libSDL.a
+LIBS="/opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a /opt/amiga/m68k-amigaos/lib/libSDL.a /opt/amiga/SDL_image-pack/lib/libjpeg.a /opt/amiga/SDL_image-pack/lib/libpng.a /opt/amiga/zlib-package/lib/libz.a -lpthread"
 mkdir -p build-amiga-vlink-full/sdl-mixer-repack
 ( cd build-amiga-vlink-full/sdl-mixer-repack && /opt/amiga/bin/m68k-amigaos-ar x /opt/amiga/SDL_mixer/lib/libSDL_mixer.a )
 /opt/amiga/bin/m68k-amigaos-ar rcs build-amiga-vlink-full/libSDL_mixer-repacked.a build-amiga-vlink-full/sdl-mixer-repack/*.o
@@ -48,7 +48,7 @@ cat build-amiga-vlink-full/vlink-old-wrapper.txt || true
 cat build-amiga-vlink-full/vlink-new-wrapper.txt || true
 cat build-amiga-vlink-full/vlink-new-repack-wrapper.txt || true
 set -e
-printf "OBJECT_COUNT=%s\nGNU_LINK_RC=%s\nVLINK_OLD_LINK_RC=%s\nVLINK_NEW_LINK_RC=%s\n" "${#OBJS[@]}" "$gnu_rc" "$vlink_old_rc" "$vlink_new_rc" >> build-amiga-vlink-full/report.txt
+printf "OBJECT_COUNT=%s\nGNU_LINK_RC=%s\nVLINK_OLD_LINK_RC=%s\nVLINK_NEW_LINK_RC=%s\nVLINK_NEW_REPACK_LINK_RC=%s\n" "${#OBJS[@]}" "$gnu_rc" "$vlink_old_rc" "$vlink_new_rc" "$vlink_new_repack_rc" >> build-amiga-vlink-full/report.txt
 [ "$gnu_rc" -eq 0 ] || rm -f build-amiga-vlink-full/full-gnu
 [ "$vlink_old_rc" -eq 0 ] || rm -f build-amiga-vlink-full/full-vlink-old
 [ "$vlink_new_rc" -eq 0 ] || rm -f build-amiga-vlink-full/full-vlink-new
