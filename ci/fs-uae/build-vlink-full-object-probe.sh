@@ -12,7 +12,11 @@ cmake --build . -- -j2
 cd ../..
 CXX=/opt/amiga/bin/m68k-amigaos-g++
 BASE="-m68020 -msoft-float -noixemul"
-LIBS="/opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a /opt/amiga/m68k-amigaos/lib/libSDL.a /opt/amiga/SDL_image-pack/lib/libjpeg.a /opt/amiga/SDL_image-pack/lib/libpng.a /opt/amiga/zlib-package/lib/libz.a -lpthread"
+LIBS="/opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a /opt/amiga/m68k-amigaos/lib/libSDL.a
+mkdir -p build-amiga-vlink-full/sdl-mixer-repack
+( cd build-amiga-vlink-full/sdl-mixer-repack && /opt/amiga/bin/m68k-amigaos-ar x /opt/amiga/SDL_mixer/lib/libSDL_mixer.a )
+/opt/amiga/bin/m68k-amigaos-ar rcs build-amiga-vlink-full/libSDL_mixer-repacked.a build-amiga-vlink-full/sdl-mixer-repack/*.o
+LIBS_REPACK="/opt/amiga/SDL_image-pack/lib/libSDL_image.a $PWD/build-amiga-vlink-full/libSDL_mixer-repacked.a /opt/amiga/m68k-amigaos/lib/libSDL.a /opt/amiga/SDL_image-pack/lib/libjpeg.a /opt/amiga/SDL_image-pack/lib/libpng.a /opt/amiga/zlib-package/lib/libz.a -lpthread"
 mapfile -t OBJS < <(find build-amiga-vlink-full/base/CMakeFiles/tk4.dir -type f -name "*.obj" ! -path "*/main.cpp.obj" | sort)
 $CXX $BASE -c ci/fs-uae/tk4-object-probe.cpp -o build-amiga-vlink-full/main.o
 cp ci/fs-uae/vlink-ld-wrapper.sh build-amiga-vlink-full/bin-old/ld
@@ -33,16 +37,21 @@ TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-old-wrapper.txt" TK4_VL
 vlink_old_rc=$?
 TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-new-wrapper.txt" TK4_VLINK_BIN="$NEW_VLINK" TK4_VLINK_BROKEN_DEBUG=1 $CXX $BASE -B"$PWD/build-amiga-vlink-full/bin-new/" build-amiga-vlink-full/main.o "${OBJS[@]}" build-amiga-vlink-full/base/libtk4-common.a $LIBS -o build-amiga-vlink-full/full-vlink-new 2>build-amiga-vlink-full/vlink-new-link.txt
 vlink_new_rc=$?
+TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-new-repack-wrapper.txt" TK4_VLINK_BIN="$NEW_VLINK" TK4_VLINK_BROKEN_DEBUG=1 $CXX $BASE -B"$PWD/build-amiga-vlink-full/bin-new/" build-amiga-vlink-full/main.o "${OBJS[@]}" build-amiga-vlink-full/base/libtk4-common.a $LIBS_REPACK -o build-amiga-vlink-full/full-vlink-new-repack 2>build-amiga-vlink-full/vlink-new-repack-link.txt
+vlink_new_repack_rc=$?
 echo "=== vlink stderr ==="
 cat build-amiga-vlink-full/vlink-old-link.txt || true
 cat build-amiga-vlink-full/vlink-new-link.txt || true
+cat build-amiga-vlink-full/vlink-new-repack-link.txt || true
 echo "=== vlink wrapper argv ==="
 cat build-amiga-vlink-full/vlink-old-wrapper.txt || true
 cat build-amiga-vlink-full/vlink-new-wrapper.txt || true
+cat build-amiga-vlink-full/vlink-new-repack-wrapper.txt || true
 set -e
 printf "OBJECT_COUNT=%s\nGNU_LINK_RC=%s\nVLINK_OLD_LINK_RC=%s\nVLINK_NEW_LINK_RC=%s\n" "${#OBJS[@]}" "$gnu_rc" "$vlink_old_rc" "$vlink_new_rc" >> build-amiga-vlink-full/report.txt
 [ "$gnu_rc" -eq 0 ] || rm -f build-amiga-vlink-full/full-gnu
 [ "$vlink_old_rc" -eq 0 ] || rm -f build-amiga-vlink-full/full-vlink-old
 [ "$vlink_new_rc" -eq 0 ] || rm -f build-amiga-vlink-full/full-vlink-new
+[ "$vlink_new_repack_rc" -eq 0 ] || rm -f build-amiga-vlink-full/full-vlink-new-repack
 '
 sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full
