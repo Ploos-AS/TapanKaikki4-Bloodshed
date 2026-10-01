@@ -47,6 +47,32 @@ jobs:
           '
           sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/archive-format
           cat build-amiga-vlink-full/archive-format/report.txt
+      - name: Inspect libamiga ACrypt relocation blocker
+        run: |
+          mkdir -p build-amiga-vlink-full/libamiga-reloc
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -euo pipefail
+            OUT=build-amiga-vlink-full/libamiga-reloc
+            LIB=/opt/amiga/m68k-amigaos/lib/libamiga.a
+            /opt/amiga/bin/m68k-amigaos-ar t "$LIB" > "$OUT/libamiga-members.txt"
+            mkdir -p "$OUT/members"
+            (cd "$OUT/members" && /opt/amiga/bin/m68k-amigaos-ar x "$LIB")
+            test -f "$OUT/members/ACrypt.o"
+            {
+              echo "=== file ==="
+              file "$OUT/members/ACrypt.o" || true
+              echo "=== objdump file header ==="
+              /opt/amiga/bin/m68k-amigaos-objdump -f "$OUT/members/ACrypt.o" || true
+              echo "=== objdump sections ==="
+              /opt/amiga/bin/m68k-amigaos-objdump -h "$OUT/members/ACrypt.o" || true
+              echo "=== objdump relocations ==="
+              /opt/amiga/bin/m68k-amigaos-objdump -r "$OUT/members/ACrypt.o" || true
+              echo "=== symbols ==="
+              /opt/amiga/bin/m68k-amigaos-nm -A "$OUT/members/ACrypt.o" || true
+            } > "$OUT/ACrypt-report.txt" 2>&1
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/libamiga-reloc
+          cat build-amiga-vlink-full/libamiga-reloc/ACrypt-report.txt
       - name: Run both probes inside AROS
         run: |
           chmod +x ci/fs-uae/*.sh
@@ -62,6 +88,7 @@ jobs:
             build-amiga-vlink-full/vlink-wrapper.txt
             build-amiga-vlink-full/vlink-ncrt0-inspect.txt
             build-amiga-vlink-full/archive-format/
+            build-amiga-vlink-full/libamiga-reloc/
             build/fs-uae/aros-m3-vlink-full/result.txt
             build/fs-uae/aros-m3-vlink-full/*/fs-uae.log
           if-no-files-found: warn
