@@ -73,6 +73,29 @@ jobs:
           '
           sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/libamiga-reloc
           cat build-amiga-vlink-full/libamiga-reloc/ACrypt-report.txt
+      - name: Trace why ACrypt is selected
+        run: |
+          mkdir -p build-amiga-vlink-full/acrypt-trace
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -euo pipefail
+            OUT=build-amiga-vlink-full/acrypt-trace
+            LIB=/opt/amiga/m68k-amigaos/lib/libamiga.a
+            /opt/amiga/bin/m68k-amigaos-nm -A "$LIB" > "$OUT/libamiga-nm.txt" 2>&1 || true
+            grep -E "(^|[[:space:]])_?ACrypt$|ACrypt" "$OUT/libamiga-nm.txt" > "$OUT/ACrypt-symbols.txt" || true
+            /opt/amiga/bin/m68k-amigaos-nm -A build-amiga-vlink-full/main.o build-amiga-vlink-full/base/CMakeFiles/tk4.dir/src/*.obj build-amiga-vlink-full/base/libtk4-common.a > "$OUT/tk4-nm.txt" 2>&1 || true
+            grep -E "[[:space:]]U[[:space:]]+_?ACrypt$|ACrypt" "$OUT/tk4-nm.txt" > "$OUT/tk4-ACrypt-references.txt" || true
+            grep -E "[[:space:]]U[[:space:]]+_SysBase$|_SysBase" "$OUT/tk4-nm.txt" > "$OUT/tk4-SysBase-references.txt" || true
+            {
+              echo "=== ACrypt definition(s) in libamiga ==="
+              cat "$OUT/ACrypt-symbols.txt"
+              echo "=== TK4/common references to ACrypt ==="
+              cat "$OUT/tk4-ACrypt-references.txt"
+              echo "=== TK4/common references to SysBase ==="
+              cat "$OUT/tk4-SysBase-references.txt"
+            } > "$OUT/report.txt"
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/acrypt-trace
+          cat build-amiga-vlink-full/acrypt-trace/report.txt
       - name: Run both probes inside AROS
         run: |
           chmod +x ci/fs-uae/*.sh
@@ -89,6 +112,7 @@ jobs:
             build-amiga-vlink-full/vlink-ncrt0-inspect.txt
             build-amiga-vlink-full/archive-format/
             build-amiga-vlink-full/libamiga-reloc/
+            build-amiga-vlink-full/acrypt-trace/
             build/fs-uae/aros-m3-vlink-full/result.txt
             build/fs-uae/aros-m3-vlink-full/*/fs-uae.log
           if-no-files-found: warn
