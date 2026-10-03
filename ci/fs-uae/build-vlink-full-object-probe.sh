@@ -37,7 +37,7 @@ TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-old-wrapper.txt" TK4_VL
 vlink_old_rc=$?
 TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-new-wrapper.txt" TK4_VLINK_BIN="$NEW_VLINK" TK4_VLINK_BROKEN_DEBUG=1 $CXX $BASE -B"$PWD/build-amiga-vlink-full/bin-new/" build-amiga-vlink-full/main.o "${OBJS[@]}" build-amiga-vlink-full/base/libtk4-common.a $LIBS -o build-amiga-vlink-full/full-vlink-new 2>build-amiga-vlink-full/vlink-new-link.txt
 vlink_new_rc=$?
-TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-new-repack-wrapper.txt" TK4_VLINK_BIN="$NEW_VLINK" TK4_VLINK_BROKEN_DEBUG=1 $CXX $BASE -B"$PWD/build-amiga-vlink-full/bin-new/" build-amiga-vlink-full/main.o "${OBJS[@]}" build-amiga-vlink-full/base/libtk4-common.a $LIBS_REPACK -o build-amiga-vlink-full/full-vlink-new-repack 2>build-amiga-vlink-full/vlink-new-repack-link.txt
+TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-new-repack-wrapper.txt" TK4_VLINK_BIN="$NEW_VLINK" TK4_VLINK_BROKEN_DEBUG=1 TK4_VLINK_TRACE_ACRYPT=1 $CXX $BASE -B"$PWD/build-amiga-vlink-full/bin-new/" build-amiga-vlink-full/main.o "${OBJS[@]}" build-amiga-vlink-full/base/libtk4-common.a $LIBS_REPACK -o build-amiga-vlink-full/full-vlink-new-repack 2>build-amiga-vlink-full/vlink-new-repack-link.txt
 vlink_new_repack_rc=$?
 echo "=== vlink stderr ==="
 cat build-amiga-vlink-full/vlink-old-link.txt || true
