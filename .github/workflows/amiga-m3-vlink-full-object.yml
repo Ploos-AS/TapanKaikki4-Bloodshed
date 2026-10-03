@@ -112,6 +112,41 @@ jobs:
             cat "$OUT/unresolved-lines.txt"
           } > "$OUT/report.txt"
           cat "$OUT/report.txt"
+      - name: Map no-libamiga symbols to runtime archives
+        run: |
+          mkdir -p build-amiga-vlink-full/no-libamiga
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -euo pipefail
+            OUT=build-amiga-vlink-full/no-libamiga
+            MAP="$OUT/symbol-definitions.txt"
+            : > "$MAP"
+            archives=(
+              /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/libm020/libgcc.a
+              /opt/amiga/lib/gcc/m68k-amigaos/6.5.0b/libm020/libstdc++.a
+              /opt/amiga/m68k-amigaos/libnix/lib/libm020/libnix20.a
+              /opt/amiga/m68k-amigaos/libnix/lib/libm020/libnixmain.a
+              /opt/amiga/m68k-amigaos/libnix/lib/libm020/libnix.a
+              /opt/amiga/m68k-amigaos/libnix/lib/libm020/libstubs.a
+              /opt/amiga/m68k-amigaos/lib/libm020/libamiga.a
+            )
+            while IFS= read -r sym; do
+              [ -n "$sym" ] || continue
+              echo "=== $sym ===" >> "$MAP"
+              found=0
+              for lib in "${archives[@]}"; do
+                [ -f "$lib" ] || continue
+                hits=$(/opt/amiga/bin/m68k-amigaos-nm -A "$lib" 2>/dev/null | awk -v s="$sym" '"'"'$NF==s && $(NF-1)!="U" {print}'"'"' || true)
+                if [ -n "$hits" ]; then
+                  printf "%s\n" "$hits" >> "$MAP"
+                  found=1
+                fi
+              done
+              [ "$found" -eq 1 ] || echo "NOT_FOUND" >> "$MAP"
+            done < "$OUT/unresolved-symbols.txt"
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/no-libamiga
+          cat build-amiga-vlink-full/no-libamiga/symbol-definitions.txt
+
       - name: Run both probes inside AROS
         run: |
           chmod +x ci/fs-uae/*.sh
