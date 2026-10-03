@@ -147,6 +147,34 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/no-libamiga
           cat build-amiga-vlink-full/no-libamiga/symbol-definitions.txt
 
+      - name: Inspect libnix indirect symbol objects
+        run: |
+          mkdir -p build-amiga-vlink-full/libnix-indirect
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -euo pipefail
+            OUT=build-amiga-vlink-full/libnix-indirect
+            mkdir -p "$OUT/objects"
+            cd "$OUT/objects"
+            /opt/amiga/bin/m68k-amigaos-ar x /opt/amiga/m68k-amigaos/libnix/lib/libm020/libnix.a __eqsf2.o __eqdf2.o
+            /opt/amiga/bin/m68k-amigaos-ar x /opt/amiga/m68k-amigaos/libnix/lib/libm020/libnixmain.a __nocommandline.o
+            for obj in __eqsf2.o __eqdf2.o __nocommandline.o; do
+              {
+                echo "=== $obj : file ==="
+                file "$obj" || true
+                echo "=== $obj : nm ==="
+                /opt/amiga/bin/m68k-amigaos-nm -a "$obj" || true
+                echo "=== $obj : symbols ==="
+                /opt/amiga/bin/m68k-amigaos-objdump -t "$obj" || true
+                echo "=== $obj : relocations ==="
+                /opt/amiga/bin/m68k-amigaos-objdump -r "$obj" || true
+                echo "=== $obj : headers ==="
+                /opt/amiga/bin/m68k-amigaos-objdump -f -h "$obj" || true
+              } > "../$obj.txt" 2>&1
+            done
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/libnix-indirect
+          cat build-amiga-vlink-full/libnix-indirect/*.txt
+
       - name: Run both probes inside AROS
         run: |
           chmod +x ci/fs-uae/*.sh
