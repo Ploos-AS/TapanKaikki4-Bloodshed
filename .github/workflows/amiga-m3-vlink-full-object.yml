@@ -102,7 +102,7 @@ jobs:
           LOG=build-amiga-vlink-full/vlink-new-no-libamiga-link.txt
           OUT=build-amiga-vlink-full/no-libamiga
           grep -Ei 'undefined|unresolved|unknown symbol|symbol .*not found|reference.*not found' "$LOG" > "$OUT/unresolved-lines.txt" || true
-          sed -nE 's/.*[Uu]ndefined[^_A-Za-z0-9]*([_A-Za-z][_A-Za-z0-9]*).*/\1/p; s/.*[Uu]nresolved[^_A-Za-z0-9]*([_A-Za-z][_A-Za-z0-9]*).*/\1/p' "$OUT/unresolved-lines.txt" | sort -u > "$OUT/unresolved-symbols.txt" || true
+          sed -nE 's/.*Reference to undefined symbol ([^ .]+).*/\1/p; s/.*[Uu]nresolved symbol ([^ .]+).*/\1/p' "$OUT/unresolved-lines.txt" | sort -u > "$OUT/unresolved-symbols.txt" || true
           {
             echo "UNRESOLVED_LINE_COUNT=$(wc -l < "$OUT/unresolved-lines.txt")"
             echo "UNRESOLVED_SYMBOL_COUNT=$(wc -l < "$OUT/unresolved-symbols.txt")"
