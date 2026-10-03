@@ -96,6 +96,22 @@ jobs:
           '
           sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/acrypt-trace
           cat build-amiga-vlink-full/acrypt-trace/report.txt
+      - name: Extract no-libamiga unresolved symbols
+        run: |
+          mkdir -p build-amiga-vlink-full/no-libamiga
+          LOG=build-amiga-vlink-full/vlink-new-no-libamiga-link.txt
+          OUT=build-amiga-vlink-full/no-libamiga
+          grep -Ei 'undefined|unresolved|unknown symbol|symbol .*not found|reference.*not found' "$LOG" > "$OUT/unresolved-lines.txt" || true
+          sed -nE 's/.*[Uu]ndefined[^_A-Za-z0-9]*([_A-Za-z][_A-Za-z0-9]*).*/\1/p; s/.*[Uu]nresolved[^_A-Za-z0-9]*([_A-Za-z][_A-Za-z0-9]*).*/\1/p' "$OUT/unresolved-lines.txt" | sort -u > "$OUT/unresolved-symbols.txt" || true
+          {
+            echo "UNRESOLVED_LINE_COUNT=$(wc -l < "$OUT/unresolved-lines.txt")"
+            echo "UNRESOLVED_SYMBOL_COUNT=$(wc -l < "$OUT/unresolved-symbols.txt")"
+            echo "=== symbols ==="
+            cat "$OUT/unresolved-symbols.txt"
+            echo "=== raw matching lines ==="
+            cat "$OUT/unresolved-lines.txt"
+          } > "$OUT/report.txt"
+          cat "$OUT/report.txt"
       - name: Run both probes inside AROS
         run: |
           chmod +x ci/fs-uae/*.sh
@@ -113,6 +129,7 @@ jobs:
             build-amiga-vlink-full/archive-format/
             build-amiga-vlink-full/libamiga-reloc/
             build-amiga-vlink-full/acrypt-trace/
+            build-amiga-vlink-full/no-libamiga/
             build/fs-uae/aros-m3-vlink-full/result.txt
             build/fs-uae/aros-m3-vlink-full/*/fs-uae.log
           if-no-files-found: warn
