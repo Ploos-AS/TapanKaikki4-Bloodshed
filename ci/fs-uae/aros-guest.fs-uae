@@ -1,6 +1,7 @@
 [fs-uae]
 amiga_model = A1200
 kickstart_file = internal
+fast_memory = 8192
 hard_drive_0 = @AROS_ROOT@
 fullscreen = 0
 window_width = 640

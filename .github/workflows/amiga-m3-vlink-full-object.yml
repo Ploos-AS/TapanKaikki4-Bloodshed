@@ -1,0 +1,135 @@
+name: Amiga M3 GNU ld vs vlink full object runtime
+
+on:
+  push:
+    branches: [amiga-m3]
+  pull_request:
+    branches: [amiga-m2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-object-linker-ab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+      - name: Build identical full object probes with GNU ld and vlink
+        run: |
+          chmod +x ci/fs-uae/build-vlink-full-object-probe.sh
+          ci/fs-uae/build-vlink-full-object-probe.sh
+      - name: Inspect SDL archive formats for vlink
+        run: |
+          mkdir -p build-amiga-vlink-full/archive-format
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -euo pipefail
+            OUT=build-amiga-vlink-full/archive-format
+            : > "$OUT/report.txt"
+            for a in /opt/amiga/m68k-amigaos/lib/libSDL.a /opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a; do
+              n=$(basename "$a")
+              d="$OUT/$n.members"
+              mkdir -p "$d"
+              /opt/amiga/bin/m68k-amigaos-ar t "$a" > "$OUT/$n.list.txt"
+              (cd "$d" && /opt/amiga/bin/m68k-amigaos-ar x "$a")
+              echo "ARCHIVE=$a" >> "$OUT/report.txt"
+              for f in "$d"/*; do
+                [ -f "$f" ] || continue
+                printf "%s: " "$(basename "$f")" >> "$OUT/report.txt"
+                /opt/amiga/bin/m68k-amigaos-objdump -f "$f" 2>&1 | grep -m1 "file format" >> "$OUT/report.txt" || echo "UNRECOGNIZED" >> "$OUT/report.txt"
+              done
+            done
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/archive-format
+          cat build-amiga-vlink-full/archive-format/report.txt
+      - name: Inspect libamiga ACrypt relocation blocker
+        run: |
+          mkdir -p build-amiga-vlink-full/libamiga-reloc
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -euo pipefail
+            OUT=build-amiga-vlink-full/libamiga-reloc
+            LIB=/opt/amiga/m68k-amigaos/lib/libamiga.a
+            /opt/amiga/bin/m68k-amigaos-ar t "$LIB" > "$OUT/libamiga-members.txt"
+            mkdir -p "$OUT/members"
+            (cd "$OUT/members" && /opt/amiga/bin/m68k-amigaos-ar x "$LIB")
+            test -f "$OUT/members/ACrypt.o"
+            {
+              echo "=== file ==="
+              file "$OUT/members/ACrypt.o" || true
+              echo "=== objdump file header ==="
+              /opt/amiga/bin/m68k-amigaos-objdump -f "$OUT/members/ACrypt.o" || true
+              echo "=== objdump sections ==="
+              /opt/amiga/bin/m68k-amigaos-objdump -h "$OUT/members/ACrypt.o" || true
+              echo "=== objdump relocations ==="
+              /opt/amiga/bin/m68k-amigaos-objdump -r "$OUT/members/ACrypt.o" || true
+              echo "=== symbols ==="
+              /opt/amiga/bin/m68k-amigaos-nm -A "$OUT/members/ACrypt.o" || true
+            } > "$OUT/ACrypt-report.txt" 2>&1
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/libamiga-reloc
+          cat build-amiga-vlink-full/libamiga-reloc/ACrypt-report.txt
+      - name: Trace why ACrypt is selected
+        run: |
+          mkdir -p build-amiga-vlink-full/acrypt-trace
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -euo pipefail
+            OUT=build-amiga-vlink-full/acrypt-trace
+            LIB=/opt/amiga/m68k-amigaos/lib/libamiga.a
+            /opt/amiga/bin/m68k-amigaos-nm -A "$LIB" > "$OUT/libamiga-nm.txt" 2>&1 || true
+            grep -E "(^|[[:space:]])_?ACrypt$|ACrypt" "$OUT/libamiga-nm.txt" > "$OUT/ACrypt-symbols.txt" || true
+            /opt/amiga/bin/m68k-amigaos-nm -A build-amiga-vlink-full/main.o build-amiga-vlink-full/base/CMakeFiles/tk4.dir/src/*.obj build-amiga-vlink-full/base/libtk4-common.a > "$OUT/tk4-nm.txt" 2>&1 || true
+            grep -E "[[:space:]]U[[:space:]]+_?ACrypt$|ACrypt" "$OUT/tk4-nm.txt" > "$OUT/tk4-ACrypt-references.txt" || true
+            grep -E "[[:space:]]U[[:space:]]+_SysBase$|_SysBase" "$OUT/tk4-nm.txt" > "$OUT/tk4-SysBase-references.txt" || true
+            {
+              echo "=== ACrypt definition(s) in libamiga ==="
+              cat "$OUT/ACrypt-symbols.txt"
+              echo "=== TK4/common references to ACrypt ==="
+              cat "$OUT/tk4-ACrypt-references.txt"
+              echo "=== TK4/common references to SysBase ==="
+              cat "$OUT/tk4-SysBase-references.txt"
+            } > "$OUT/report.txt"
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/acrypt-trace
+          cat build-amiga-vlink-full/acrypt-trace/report.txt
+      - name: Extract no-libamiga unresolved symbols
+        run: |
+          mkdir -p build-amiga-vlink-full/no-libamiga
+          LOG=build-amiga-vlink-full/vlink-new-no-libamiga-link.txt
+          OUT=build-amiga-vlink-full/no-libamiga
+          grep -Ei 'undefined|unresolved|unknown symbol|symbol .*not found|reference.*not found' "$LOG" > "$OUT/unresolved-lines.txt" || true
+          sed -nE 's/.*Reference to undefined symbol ([^ .]+).*/\1/p; s/.*[Uu]nresolved symbol ([^ .]+).*/\1/p' "$OUT/unresolved-lines.txt" | sort -u > "$OUT/unresolved-symbols.txt" || true
+          {
+            echo "UNRESOLVED_LINE_COUNT=$(wc -l < "$OUT/unresolved-lines.txt")"
+            echo "UNRESOLVED_SYMBOL_COUNT=$(wc -l < "$OUT/unresolved-symbols.txt")"
+            echo "=== symbols ==="
+            cat "$OUT/unresolved-symbols.txt"
+            echo "=== raw matching lines ==="
+            cat "$OUT/unresolved-lines.txt"
+          } > "$OUT/report.txt"
+          cat "$OUT/report.txt"
+      - name: Run both probes inside AROS
+        run: |
+          chmod +x ci/fs-uae/*.sh
+          ci/fs-uae/run-aros-vlink-full-object-probe.sh
+      - name: Upload linker A/B evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-gnu-vlink-full-object
+          path: |
+            build-amiga-vlink-full/report.txt
+            build-amiga-vlink-full/*-link.txt
+            build-amiga-vlink-full/vlink-wrapper.txt
+            build-amiga-vlink-full/vlink-ncrt0-inspect.txt
+            build-amiga-vlink-full/archive-format/
+            build-amiga-vlink-full/libamiga-reloc/
+            build-amiga-vlink-full/acrypt-trace/
+            build-amiga-vlink-full/no-libamiga/
+            build/fs-uae/aros-m3-vlink-full/result.txt
+            build/fs-uae/aros-m3-vlink-full/*/fs-uae.log
+          if-no-files-found: warn

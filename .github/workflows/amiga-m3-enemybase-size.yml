@@ -1,0 +1,164 @@
+name: Amiga M3 enemy base and HUNK size diagnostics
+
+on:
+  push:
+    branches: [amiga-m3]
+  pull_request:
+    branches: [amiga-m2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  enemybase-size:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+
+      - name: Build enemy-base split and synthetic size probes
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            ozzyboshi/bebbo-amiga-gcc:latest \
+            bash -lc '
+              set -eux
+              if ! command -v cmake >/dev/null 2>&1; then
+                apt-get update
+                DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
+              fi
+              rm -rf build-amiga
+              mkdir build-amiga
+              cd build-amiga
+              cmake .. \
+                -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake \
+                -DTK4_AMIGA=ON \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL \
+                -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
+                -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL \
+                -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a \
+                -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include \
+                -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              cmake --build . -- -j2
+
+              CXX=/opt/amiga/bin/m68k-amigaos-g++
+              BASE="-m68020 -msoft-float -noixemul"
+              INC="-I../src/common -I../src"
+              ENEMY_OBJ="CMakeFiles/tk4-common.dir/src/common/CEnemyBase.cpp.obj"
+              TYPE_IF_OBJ="CMakeFiles/tk4-common.dir/src/common/TypeInterfaces.cpp.obj"
+              test -f "$ENEMY_OBJ"
+              test -f "$TYPE_IF_OBJ"
+
+              build_probe() {
+                name="$1"
+                marker="$2"
+                label="$3"
+                shift 3
+                $CXX $BASE \
+                  -DPROBE_MARKER=\"SYS:save/$marker\" \
+                  -DPROBE_LABEL=\"${label}=1\\n\" \
+                  -c ../ci/fs-uae/m3-enemybase-size-probe.cpp -o "${name}-main.o"
+                $CXX $BASE "${name}-main.o" "$@" "$TYPE_IF_OBJ" -o "$name"
+              }
+
+              build_probe tk4-enemybase-probe m3-enemybase-main.txt ENEMYBASE_MAIN "$ENEMY_OBJ"
+
+              $CXX $BASE $INC -c ../ci/fs-uae/m3-enemybase-ctor.cpp -o enemybase-ctor.o
+              $CXX $BASE $INC -c ../ci/fs-uae/m3-enemybase-accessors.cpp -o enemybase-accessors.o
+              build_probe tk4-enemybase-ctor-probe m3-enemybase-ctor-main.txt ENEMYBASE_CTOR_MAIN enemybase-ctor.o
+              build_probe tk4-enemybase-accessors-probe m3-enemybase-accessors-main.txt ENEMYBASE_ACCESSORS_MAIN enemybase-accessors.o
+
+              for stage in 0 1 2 3 4; do
+                obj="enemybase-ctor-stage${stage}.o"
+                bin="tk4-enemybase-ctor-stage${stage}-probe"
+                marker="m3-enemybase-ctor-stage${stage}-main.txt"
+                label="ENEMYBASE_CTOR_STAGE${stage}_MAIN"
+                $CXX $BASE $INC -DCTOR_STAGE=$stage \
+                  -c ../ci/fs-uae/m3-enemybase-ctor-split.cpp -o "$obj"
+                build_probe "$bin" "$marker" "$label" "$obj"
+              done
+
+              # Compile the real empty EnemyBase constructor with runtime features selectively disabled.
+              for mode in nortti noexceptions both; do
+                extra=""
+                case "$mode" in
+                  nortti) extra="-fno-rtti" ;;
+                  noexceptions) extra="-fno-exceptions" ;;
+                  both) extra="-fno-rtti -fno-exceptions" ;;
+                esac
+                obj="enemybase-ctor-${mode}.o"
+                bin="tk4-enemybase-ctor-${mode}-probe"
+                marker="m3-enemybase-ctor-${mode}-main.txt"
+                $CXX $BASE $extra $INC -DCTOR_STAGE=0 \
+                  -c ../ci/fs-uae/m3-enemybase-ctor-split.cpp -o "$obj"
+                $CXX $BASE $extra \
+                  -DPROBE_MARKER=\"SYS:save/$marker\" \
+                  -c ../ci/fs-uae/m3-enemybase-size-probe.cpp -o "${bin}-main.o"
+                $CXX $BASE $extra "${bin}-main.o" "$obj" "$TYPE_IF_OBJ" -o "$bin"
+              done
+
+              # Independent hierarchy probes: no virtuals -> direct virtuals -> abstract base -> pure dtor -> IEnemyType-shaped base.
+              for variant in 0 1 2 3 4; do
+                bin="tk4-vtable-${variant}-probe"
+                marker="m3-vtable-${variant}-main.txt"
+                $CXX $BASE \
+                  -DPROBE_VARIANT=$variant \
+                  -DPROBE_MARKER=\"SYS:save/$marker\" \
+                  ../ci/fs-uae/m3-enemybase-vtable-probe.cpp -o "$bin"
+              done
+
+              for kb in 700 850 950 1000 1050 1100 1250; do
+                bytes=$((kb * 1024))
+                $CXX $BASE \
+                  -DPROBE_PAD_BYTES=$bytes \
+                  -DPROBE_MARKER=\"SYS:save/m3-pad-${kb}k-main.txt\" \
+                  -DPROBE_LABEL=\"PAD_${kb}K_MAIN=1\\n\" \
+                  ../ci/fs-uae/m3-enemybase-size-probe.cpp \
+                  -o "tk4-pad-${kb}k"
+              done
+
+              : > m3-enemybase-size-build.txt
+              for bin in tk4-enemybase-probe tk4-enemybase-ctor-probe tk4-enemybase-accessors-probe tk4-enemybase-ctor-stage*-probe tk4-enemybase-ctor-nortti-probe tk4-enemybase-ctor-noexceptions-probe tk4-enemybase-ctor-both-probe tk4-vtable-*-probe tk4-pad-*k; do
+                echo "=== $bin ===" >> m3-enemybase-size-build.txt
+                stat -c "BYTES=%s" "$bin" >> m3-enemybase-size-build.txt
+                /opt/amiga/bin/m68k-amigaos-size -A "$bin" >> m3-enemybase-size-build.txt || true
+                /opt/amiga/bin/m68k-amigaos-objdump -f "$bin" >> m3-enemybase-size-build.txt || true
+                /opt/amiga/bin/m68k-amigaos-nm -C "$bin" | grep -E "vtable|typeinfo|CEnemyBase|IEnemyType|Probe(Base|Enemy)" >> m3-enemybase-size-build.txt || true
+              done
+              cat m3-enemybase-size-build.txt
+            '
+
+      - name: Run AROS enemy-base split and size probes
+        run: |
+          chmod +x ci/fs-uae/*.sh
+          ci/fs-uae/run-aros-enemybase-size.sh
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-amiga-m3-enemybase-size
+          path: |
+            build-amiga/tk4-enemybase-probe
+            build-amiga/tk4-enemybase-ctor-probe
+            build-amiga/tk4-enemybase-accessors-probe
+            build-amiga/tk4-enemybase-ctor-stage*-probe
+            build-amiga/tk4-enemybase-ctor-nortti-probe
+            build-amiga/tk4-enemybase-ctor-noexceptions-probe
+            build-amiga/tk4-enemybase-ctor-both-probe
+            build-amiga/tk4-vtable-*-probe
+            build-amiga/tk4-pad-*k
+            build-amiga/m3-enemybase-size-build.txt
+            build/fs-uae/aros-m3-enemybase-size/result.txt
+            build/fs-uae/aros-m3-enemybase-size/*/result.txt
+            build/fs-uae/aros-m3-enemybase-size/*/fs-uae.log
+          if-no-files-found: warn

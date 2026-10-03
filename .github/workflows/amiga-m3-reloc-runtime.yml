@@ -1,0 +1,182 @@
+name: Amiga M3 relocation runtime diagnostics
+
+on:
+  push:
+    branches: [amiga-m3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  relocation-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl lhasa p7zip-full unzip
+
+      - name: Build controlled RELOC32 stress probes
+        run: |
+          mkdir -p build-amiga-reloc
+          docker run --rm -v "$PWD:/work" -w /work/build-amiga-reloc \
+            ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+              set -eux
+              CC=/opt/amiga/bin/m68k-amigaos-gcc
+              AS=/opt/amiga/bin/m68k-amigaos-as
+              OBJDUMP=/opt/amiga/bin/m68k-amigaos-objdump
+              SIZE=/opt/amiga/bin/m68k-amigaos-size
+              BASE="-m68020 -msoft-float -noixemul"
+
+              printf "%s\n" \
+                "#include <stdio.h>" \
+                "#ifndef PROBE_COUNT" \
+                "#define PROBE_COUNT 0" \
+                "#endif" \
+                "#define STR2(x) #x" \
+                "#define STR(x) STR2(x)" \
+                "int main(void)" \
+                "{" \
+                "    FILE *f = fopen(\"SYS:save/m3-reloc-\" STR(PROBE_COUNT) \".txt\", \"w\");" \
+                "    if (f) {" \
+                "        fputs(\"PASS RELOC32=\" STR(PROBE_COUNT) \"\\n\", f);" \
+                "        fclose(f);" \
+                "    }" \
+                "    return 0;" \
+                "}" > reloc-main.c
+
+              : > relocation-build-report.txt
+              for n in 256 512 1024 2048 4096 8192 12000; do
+                printf ".text\n.globl _m3_anchor_%s\n_m3_anchor_%s:\n    rts\n\n.data\n.globl _m3_reloc_table_%s\n_m3_reloc_table_%s:\n    .rept %s\n    .long _m3_anchor_%s\n    .endr\n" \
+                  "$n" "$n" "$n" "$n" "$n" "$n" > "reloc-${n}.s"
+                $AS "reloc-${n}.s" -o "reloc-${n}.o"
+                $CC $BASE -DPROBE_COUNT=$n reloc-main.c "reloc-${n}.o" -o "reloc-${n}-probe"
+                echo "=== reloc-${n}-probe ===" >> relocation-build-report.txt
+                $SIZE -A "reloc-${n}-probe" >> relocation-build-report.txt || true
+                reloc_count="$($OBJDUMP -r "reloc-${n}.o" | grep -c RELOC || true)"
+                echo "OBJECT_RELOCATIONS=$reloc_count" >> relocation-build-report.txt
+                $OBJDUMP -f "reloc-${n}-probe" >> relocation-build-report.txt || true
+              done
+              cat relocation-build-report.txt
+            '
+
+      - name: Run relocation probes inside AROS
+        run: |
+          set -euo pipefail
+          OUT=build/fs-uae/aros-reloc
+          SYSROOT=build/fs-uae/aros-system
+          mkdir -p "$OUT"
+
+          chmod +x ci/fs-uae/fetch-aros-system.sh
+          iso="$(ci/fs-uae/fetch-aros-system.sh "$SYSROOT" | tail -n 1)"
+          root="$OUT/system-root"
+          rm -rf "$root"
+          mkdir -p "$root"
+          7z x -y -o"$root" "$iso" >/dev/null
+
+          startup="$(find "$root" -type f -ipath '*/s/startup-sequence' -print -quit)"
+          test -n "$startup"
+          aros_root="$(dirname "$(dirname "$startup")")"
+          mkdir -p "$aros_root/save"
+
+          for n in 256 512 1024 2048 4096 8192 12000; do
+            cp "build-amiga-reloc/reloc-${n}-probe" "$aros_root/reloc-${n}-probe"
+          done
+
+          cp "$startup" "$startup.m3-reloc-original"
+          cat > "$startup" <<'EOF'
+          SYS:C/Echo "M3_RELOC_GUEST_STARTED=1" >SYS:m3-reloc-started.txt
+          SYS:C/Stack 262144
+          SYS:C/Echo $RC >SYS:m3-reloc-stack-rc.txt
+
+          SYS:C/Echo "BEFORE=256" >SYS:m3-reloc-before-256.txt
+          SYS:reloc-256-probe
+          SYS:C/Echo $RC >SYS:m3-reloc-rc-256.txt
+          SYS:C/Echo "AFTER=256" >SYS:m3-reloc-after-256.txt
+
+          SYS:C/Echo "BEFORE=512" >SYS:m3-reloc-before-512.txt
+          SYS:reloc-512-probe
+          SYS:C/Echo $RC >SYS:m3-reloc-rc-512.txt
+          SYS:C/Echo "AFTER=512" >SYS:m3-reloc-after-512.txt
+
+          SYS:C/Echo "BEFORE=1024" >SYS:m3-reloc-before-1024.txt
+          SYS:reloc-1024-probe
+          SYS:C/Echo $RC >SYS:m3-reloc-rc-1024.txt
+          SYS:C/Echo "AFTER=1024" >SYS:m3-reloc-after-1024.txt
+
+          SYS:C/Echo "BEFORE=2048" >SYS:m3-reloc-before-2048.txt
+          SYS:reloc-2048-probe
+          SYS:C/Echo $RC >SYS:m3-reloc-rc-2048.txt
+          SYS:C/Echo "AFTER=2048" >SYS:m3-reloc-after-2048.txt
+
+          SYS:C/Echo "BEFORE=4096" >SYS:m3-reloc-before-4096.txt
+          SYS:reloc-4096-probe
+          SYS:C/Echo $RC >SYS:m3-reloc-rc-4096.txt
+          SYS:C/Echo "AFTER=4096" >SYS:m3-reloc-after-4096.txt
+
+          SYS:C/Echo "BEFORE=8192" >SYS:m3-reloc-before-8192.txt
+          SYS:reloc-8192-probe
+          SYS:C/Echo $RC >SYS:m3-reloc-rc-8192.txt
+          SYS:C/Echo "AFTER=8192" >SYS:m3-reloc-after-8192.txt
+
+          SYS:C/Echo "BEFORE=12000" >SYS:m3-reloc-before-12000.txt
+          SYS:reloc-12000-probe
+          SYS:C/Echo $RC >SYS:m3-reloc-rc-12000.txt
+          SYS:C/Echo "AFTER=12000" >SYS:m3-reloc-after-12000.txt
+
+          SYS:C/Echo "M3_RELOC_COMPLETE=1" >SYS:m3-reloc-complete.txt
+          SYS:C/Execute SYS:S/Startup-Sequence.m3-reloc-original
+          EOF
+
+          config="$OUT/aros-guest.fs-uae"
+          sed "s|@AROS_ROOT@|$PWD/$aros_root|" ci/fs-uae/aros-guest.fs-uae > "$config"
+          set +e
+          timeout --signal=TERM --kill-after=5s 45s xvfb-run -a fs-uae "$config" > "$OUT/fs-uae.log" 2>&1
+          fsuae_rc=$?
+          set -e
+
+          status=PASS
+          first_failure=none
+          : > "$OUT/result.txt"
+          for n in 256 512 1024 2048 4096 8192 12000; do
+            before=no; marker=no; after=no; rc=missing
+            test -f "$aros_root/m3-reloc-before-${n}.txt" && before=yes
+            test -f "$aros_root/save/m3-reloc-${n}.txt" && marker=yes
+            test -f "$aros_root/m3-reloc-after-${n}.txt" && after=yes
+            test -f "$aros_root/m3-reloc-rc-${n}.txt" && rc="$(tr -d '\r\n' < "$aros_root/m3-reloc-rc-${n}.txt")"
+            echo "RELOC_${n}_BEFORE=$before" >> "$OUT/result.txt"
+            echo "RELOC_${n}_MAIN=$marker" >> "$OUT/result.txt"
+            echo "RELOC_${n}_AFTER=$after" >> "$OUT/result.txt"
+            echo "RELOC_${n}_RC=$rc" >> "$OUT/result.txt"
+            if [[ "$marker" != yes || "$after" != yes || "$rc" != 0 ]]; then
+              status=FAIL
+              if [[ "$first_failure" == none ]]; then first_failure="$n"; fi
+            fi
+          done
+          {
+            echo "STATUS=$status"
+            echo "GATE=M3_AROS_RELOCATION_STRESS"
+            echo "FS_UAE_EXIT=$fsuae_rc"
+            echo "FIRST_FAILURE=$first_failure"
+          } >> "$OUT/result.txt"
+          cat "$OUT/result.txt"
+          test "$status" = PASS
+
+      - name: Upload relocation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-relocation-runtime-report
+          path: |
+            build-amiga-reloc/reloc-*-probe
+            build-amiga-reloc/relocation-build-report.txt
+            build/fs-uae/aros-reloc/result.txt
+            build/fs-uae/aros-reloc/fs-uae.log
+            build/fs-uae/aros-reloc/aros-guest.fs-uae
+            build/fs-uae/aros-reloc/system-root/m3-reloc-*.txt
+            build/fs-uae/aros-reloc/system-root/save/m3-reloc-*.txt
+          if-no-files-found: warn

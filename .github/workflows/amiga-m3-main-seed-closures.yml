@@ -1,0 +1,132 @@
+name: Amiga M3 main seed-closure map
+
+on:
+  push:
+    branches: [amiga-m3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  seed-closure-map:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+
+      - name: Build one dependency closure per main TU
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc "$(cat <<'SEED_BUILD_SCRIPT'
+            set -euxo pipefail
+            command -v cmake >/dev/null 2>&1 || { apt-get update; DEBIAN_FRONTEND=noninteractive apt-get install -y cmake; }
+            rm -rf build-amiga build-amiga-seed-closures
+            mkdir build-amiga && cd build-amiga
+            cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake -DTK4_AMIGA=ON -DCMAKE_BUILD_TYPE=Release -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+            cmake --build . -- -j2
+            cd ..
+
+            OUT=build-amiga-seed-closures
+            mkdir -p "$OUT"
+            CXX=/opt/amiga/bin/m68k-amigaos-g++
+            NM=/opt/amiga/bin/m68k-amigaos-nm
+            BASE="-m68020 -msoft-float -noixemul"
+            LIBS="build-amiga/libtk4-common.a /opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a /opt/amiga/m68k-amigaos/lib/libSDL.a /opt/amiga/SDL_image-pack/lib/libjpeg.a /opt/amiga/SDL_image-pack/lib/libpng.a /opt/amiga/zlib-package/lib/libz.a -lpthread"
+
+            mapfile -t OBJECTS < <(find build-amiga/CMakeFiles/tk4.dir/src -type f -name "*.cpp.obj" ! -name "main.cpp.obj" | sort)
+            n=${#OBJECTS[@]}
+            test "$n" -gt 10
+
+            declare -A provider
+            for i in "${!OBJECTS[@]}"; do
+              while read -r sym; do
+                [ -n "$sym" ] && provider["$sym"]="$i"
+              done < <($NM -g --defined-only "${OBJECTS[$i]}" 2>/dev/null | sed -E "s/.*[[:space:]]([^[:space:]]+)$/\\1/")
+            done
+
+            closure() {
+              local -a sel=("$@")
+              local changed=1 i sym j
+              declare -A have=()
+              for i in "${sel[@]}"; do have[$i]=1; done
+              while ((changed)); do
+                changed=0
+                for i in "${!have[@]}"; do
+                  while read -r sym; do
+                    j="${provider[$sym]:-}"
+                    if [ -n "$j" ] && [ -z "${have[$j]:-}" ]; then have[$j]=1; changed=1; fi
+                  done < <($NM -u "${OBJECTS[$i]}" 2>/dev/null | sed -E "s/.*[[:space:]]([^[:space:]]+)$/\\1/")
+                done
+              done
+              printf "%s\\n" "${!have[@]}" | sort -n
+            }
+
+            : > "$OUT/manifest.tsv"
+            : > "$OUT/seed-closure-report.txt"
+            : > "$OUT/link-skips.txt"
+
+            for i in "${!OBJECTS[@]}"; do
+              member="${OBJECTS[$i]##*/}"
+              id="$(printf "%03d" "$i")"
+              mapfile -t idx < <(closure "$i")
+              objs=()
+              for j in "${idx[@]}"; do objs+=("${OBJECTS[$j]}"); done
+              count=${#objs[@]}
+              label="seed-$id"
+              marker="m3-main-seed-$id.txt"
+              bin="main-seed-$id-probe"
+
+              printf "SEED=%s MEMBER=%s COUNT=%s\\n" "$id" "$member" "$count" >> "$OUT/seed-closure-report.txt"
+              for x in "${objs[@]}"; do printf "  %s\\n" "${x##*/}" >> "$OUT/seed-closure-report.txt"; done
+
+              printf '%s\n' \
+                '#include <cstdio>' \
+                'int main()' \
+                '{' \
+                "  FILE *f = std::fopen(\"SYS:save/$marker\", \"w\");" \
+                "  if (f) { std::fputs(\"MAIN_SEED_$id=1\\\\n\", f); std::fclose(f); }" \
+                '  return 0;' \
+                '}' > "$OUT/$label-main.cpp"
+              $CXX $BASE -c "$OUT/$label-main.cpp" -o "$OUT/$label-main.o"
+
+              set +e
+              $CXX $BASE "$OUT/$label-main.o" "${objs[@]}" $LIBS -Wl,-Map="$OUT/$label.map" -o "$OUT/$bin" > "$OUT/$label.link.log" 2>&1
+              rc=$?
+              set -e
+              if [ "$rc" -eq 0 ]; then
+                printf "seed-%s\\t%s\\t%s\\t%s\\n" "$id" "$member" "$bin" "$marker" >> "$OUT/manifest.tsv"
+              else
+                printf "LINK_SKIP seed-%s %s RC=%s\\n" "$id" "$member" "$rc" >> "$OUT/link-skips.txt"
+              fi
+            done
+
+            cat "$OUT/seed-closure-report.txt"
+            cat "$OUT/manifest.tsv"
+            cat "$OUT/link-skips.txt" 2>/dev/null || true
+
+          SEED_BUILD_SCRIPT
+          )"
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-seed-closures
+
+
+      - name: Run seed closures inside AROS
+        run: |
+          chmod +x ci/fs-uae/*.sh
+          OUT_DIR=build/fs-uae/aros-m3-seed-closures NATIVE_DIR=build-amiga-seed-closures ci/fs-uae/run-aros-main-object-isolation.sh
+
+      - name: Upload seed-closure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-main-seed-closures
+          path: |
+            build-amiga-seed-closures/**
+            build/fs-uae/aros-m3-seed-closures/result.txt
+            build/fs-uae/aros-m3-seed-closures/*/result.txt
+            build/fs-uae/aros-m3-seed-closures/*/fs-uae.log
+          if-no-files-found: warn

@@ -1,0 +1,161 @@
+name: Amiga M3 common archive object isolation
+
+on:
+  push:
+    branches: [amiga-m3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  common-quartile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+
+      - name: Build common archive isolation probes
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            ozzyboshi/bebbo-amiga-gcc:latest \
+            bash -lc '
+              set -euxo pipefail
+              if ! command -v cmake >/dev/null 2>&1; then
+                apt-get update
+                DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
+              fi
+              rm -rf build-amiga
+              mkdir build-amiga
+              cd build-amiga
+              cmake .. \
+                -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake \
+                -DTK4_AMIGA=ON \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL \
+                -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
+                -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL \
+                -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a \
+                -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include \
+                -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              cmake --build . -- -j2
+
+              CXX=/opt/amiga/bin/m68k-amigaos-g++
+              AR=/opt/amiga/bin/m68k-amigaos-ar
+              BASE="-m68020 -msoft-float -noixemul"
+              IMAGE_LIB=/opt/amiga/SDL_image-pack/lib/libSDL_image.a
+              MIXER_LIB=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+              SDL_LIB=/opt/amiga/m68k-amigaos/lib/libSDL.a
+              JPEG_LIB=/opt/amiga/SDL_image-pack/lib/libjpeg.a
+              PNG_LIB=/opt/amiga/SDL_image-pack/lib/libpng.a
+              Z_LIB=/opt/amiga/zlib-package/lib/libz.a
+              LIBS="$IMAGE_LIB $MIXER_LIB $SDL_LIB $JPEG_LIB $PNG_LIB $Z_LIB -lpthread"
+
+              mapfile -t MEMBERS < <($AR t libtk4-common.a)
+              COUNT=${#MEMBERS[@]}
+              test "$COUNT" -gt 4
+              printf "%s\n" "${MEMBERS[@]}" > tk4-common-members.txt
+              echo "MEMBER_COUNT=$COUNT" > tk4-common-quartiles.txt
+
+              build_quarter() {
+                q="$1"
+                start=$(( (q - 1) * COUNT / 4 ))
+                end=$(( q * COUNT / 4 ))
+                if [ "$q" -eq 4 ]; then end="$COUNT"; fi
+                dir="common-q${q}-members"
+                mkdir "$dir"
+                : > "common-q${q}.txt"
+                for ((i=start; i<end; i++)); do
+                  member="${MEMBERS[$i]}"
+                  echo "$member" >> "common-q${q}.txt"
+                  $AR p libtk4-common.a "$member" > "$dir/$member"
+                done
+                (cd "$dir" && $AR rcs "../libtk4-common-q${q}.a" ./*.obj)
+                echo "Q${q}_START=$start Q${q}_END=$end" >> tk4-common-quartiles.txt
+                cat "common-q${q}.txt" >> tk4-common-quartiles.txt
+
+                marker="m3-common-q${q}-main.txt"
+                $CXX $BASE \
+                  -DPROBE_MARKER=\"SYS:save/${marker}\" \
+                  -DPROBE_LABEL=\"COMMON_Q${q}_MAIN=1\\n\" \
+                  -c ../ci/fs-uae/tk4-object-probe.cpp -o "common-q${q}-main.o"
+                $CXX $BASE "common-q${q}-main.o" \
+                  -Wl,--whole-archive "libtk4-common-q${q}.a" -Wl,--no-whole-archive \
+                  libtk4-common.a $LIBS \
+                  -Wl,-Map="tk4-common-q${q}.map" \
+                  -o "tk4-common-q${q}-probe"
+              }
+
+              for q in 1 2 3 4; do build_quarter "$q"; done
+
+              : > tk4-common-object-manifest.tsv
+              for ((i=0; i<COUNT; i++)); do
+                member="${MEMBERS[$i]}"
+                id="$(printf "%03d" "$i")"
+                subset="common-obj-${id}-members"
+                mkdir "$subset"
+                $AR p libtk4-common.a "$member" > "$subset/$member"
+                (cd "$subset" && $AR rcs "../libtk4-common-obj-${id}.a" "$member")
+
+                marker="m3-common-obj-${id}-main.txt"
+                bin="tk4-common-obj-${id}-probe"
+                $CXX $BASE \
+                  -DPROBE_MARKER=\"SYS:save/${marker}\" \
+                  -DPROBE_LABEL=\"COMMON_OBJ_${id}_MAIN=1\\n\" \
+                  -c ../ci/fs-uae/tk4-object-probe.cpp -o "common-obj-${id}-main.o"
+                $CXX $BASE "common-obj-${id}-main.o" \
+                  -Wl,--whole-archive "libtk4-common-obj-${id}.a" -Wl,--no-whole-archive \
+                  libtk4-common.a $LIBS \
+                  -Wl,-Map="tk4-common-obj-${id}.map" \
+                  -o "$bin"
+                printf "%s\t%s\t%s\t%s\n" "$id" "$member" "$bin" "$marker" >> tk4-common-object-manifest.tsv
+              done
+
+              $CXX $BASE \
+                -DPROBE_MARKER=\"SYS:save/m3-common-whole-main.txt\" \
+                -DPROBE_LABEL=\"COMMON_WHOLE_MAIN=1\\n\" \
+                -c ../ci/fs-uae/tk4-object-probe.cpp -o common-whole-main.o
+              $CXX $BASE common-whole-main.o \
+                -Wl,--whole-archive libtk4-common.a -Wl,--no-whole-archive \
+                $LIBS -o tk4-common-whole-probe
+
+              cat tk4-common-quartiles.txt
+              cat tk4-common-object-manifest.tsv
+              for q in 1 2 3 4; do
+                stat -c "Q${q}_BYTES=%s" "tk4-common-q${q}-probe"
+              done
+              stat -c "WHOLE_BYTES=%s" tk4-common-whole-probe
+            '
+
+      - name: Run AROS common archive probes
+        run: |
+          chmod +x ci/fs-uae/*.sh
+          ci/fs-uae/run-aros-common-quartile.sh
+
+      - name: Upload common archive evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-amiga-m3-common-quartile
+          path: |
+            build-amiga/tk4-common-q*-probe
+            build-amiga/tk4-common-obj-*-probe
+            build-amiga/tk4-common-whole-probe
+            build-amiga/tk4-common-members.txt
+            build-amiga/tk4-common-quartiles.txt
+            build-amiga/tk4-common-object-manifest.tsv
+            build-amiga/common-q*.txt
+            build-amiga/tk4-common-q*.map
+            build-amiga/tk4-common-obj-*.map
+            build/fs-uae/aros-m3-common-quartile/result.txt
+            build/fs-uae/aros-m3-common-quartile/*/result.txt
+            build/fs-uae/aros-m3-common-quartile/*/fs-uae.log
+          if-no-files-found: warn
