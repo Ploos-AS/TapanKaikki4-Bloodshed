@@ -6,6 +6,9 @@ args=()
 if [ "${TK4_VLINK_BROKEN_DEBUG:-0}" = "1" ]; then
   args+=("-broken-debug")
 fi
+if [ "${TK4_VLINK_TRACE_ACRYPT:-0}" = "1" ]; then
+  args+=("-t" "-y" "_ACrypt")
+fi
 skip_next=0
 printf 'LINKER=%q\n' "$REAL_VLINK" >>"$LOG"
 "$REAL_VLINK" -v >>"$LOG" 2>&1 || true
