@@ -44,22 +44,27 @@ TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-new-repack-wrapper.txt"
 vlink_new_repack_rc=$?
 TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-new-no-acrypt-wrapper.txt" TK4_VLINK_BIN="$NEW_VLINK" TK4_VLINK_BROKEN_DEBUG=1 $CXX $BASE -nostdlib -B"$PWD/build-amiga-vlink-full/bin-new/" /opt/amiga/m68k-amigaos/libnix/lib/ncrt0.o build-amiga-vlink-full/main.o "${OBJS[@]}" build-amiga-vlink-full/base/libtk4-common.a $LIBS_NO_ACRYPT -o build-amiga-vlink-full/full-vlink-new-no-acrypt 2>build-amiga-vlink-full/vlink-new-no-acrypt-link.txt
 vlink_new_no_acrypt_rc=$?
+TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-new-no-libamiga-wrapper.txt" TK4_VLINK_BIN="$NEW_VLINK" TK4_VLINK_BROKEN_DEBUG=1 $CXX $BASE -nostdlib -B"$PWD/build-amiga-vlink-full/bin-new/" /opt/amiga/m68k-amigaos/libnix/lib/ncrt0.o build-amiga-vlink-full/main.o "${OBJS[@]}" build-amiga-vlink-full/base/libtk4-common.a $LIBS_REPACK -lstdc++ -lm -lnix20 -lnixmain -lnix -lstubs -lgcc -lpthread -lm -l__m__ -o build-amiga-vlink-full/full-vlink-new-no-libamiga 2>build-amiga-vlink-full/vlink-new-no-libamiga-link.txt
+vlink_new_no_libamiga_rc=$?
 echo "=== vlink stderr ==="
 cat build-amiga-vlink-full/vlink-old-link.txt || true
 cat build-amiga-vlink-full/vlink-new-link.txt || true
 cat build-amiga-vlink-full/vlink-new-repack-link.txt || true
 cat build-amiga-vlink-full/vlink-new-no-acrypt-link.txt || true
+cat build-amiga-vlink-full/vlink-new-no-libamiga-link.txt || true
 echo "=== vlink wrapper argv ==="
 cat build-amiga-vlink-full/vlink-old-wrapper.txt || true
 cat build-amiga-vlink-full/vlink-new-wrapper.txt || true
 cat build-amiga-vlink-full/vlink-new-repack-wrapper.txt || true
 cat build-amiga-vlink-full/vlink-new-no-acrypt-wrapper.txt || true
+cat build-amiga-vlink-full/vlink-new-no-libamiga-wrapper.txt || true
 set -e
-printf "OBJECT_COUNT=%s\nGNU_LINK_RC=%s\nVLINK_OLD_LINK_RC=%s\nVLINK_NEW_LINK_RC=%s\nVLINK_NEW_REPACK_LINK_RC=%s\nVLINK_NEW_NO_ACRYPT_LINK_RC=%s\n" "${#OBJS[@]}" "$gnu_rc" "$vlink_old_rc" "$vlink_new_rc" "$vlink_new_repack_rc" "$vlink_new_no_acrypt_rc" >> build-amiga-vlink-full/report.txt
+printf "OBJECT_COUNT=%s\nGNU_LINK_RC=%s\nVLINK_OLD_LINK_RC=%s\nVLINK_NEW_LINK_RC=%s\nVLINK_NEW_REPACK_LINK_RC=%s\nVLINK_NEW_NO_ACRYPT_LINK_RC=%s\nVLINK_NEW_NO_LIBAMIGA_LINK_RC=%s\n" "${#OBJS[@]}" "$gnu_rc" "$vlink_old_rc" "$vlink_new_rc" "$vlink_new_repack_rc" "$vlink_new_no_acrypt_rc" "$vlink_new_no_libamiga_rc" >> build-amiga-vlink-full/report.txt
 [ "$gnu_rc" -eq 0 ] || rm -f build-amiga-vlink-full/full-gnu
 [ "$vlink_old_rc" -eq 0 ] || rm -f build-amiga-vlink-full/full-vlink-old
 [ "$vlink_new_rc" -eq 0 ] || rm -f build-amiga-vlink-full/full-vlink-new
 [ "$vlink_new_repack_rc" -eq 0 ] || rm -f build-amiga-vlink-full/full-vlink-new-repack
 [ "$vlink_new_no_acrypt_rc" -eq 0 ] || rm -f build-amiga-vlink-full/full-vlink-new-no-acrypt
+[ "$vlink_new_no_libamiga_rc" -eq 0 ] || rm -f build-amiga-vlink-full/full-vlink-new-no-libamiga
 '
 sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full
