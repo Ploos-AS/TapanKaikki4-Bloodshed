@@ -52,6 +52,33 @@ mkdir -p build-amiga-vlink-full/libnix-direct
 )
 LIBNIX_DIRECT="$PWD/build-amiga-vlink-full/libnix-direct/__eqsf2.o $PWD/build-amiga-vlink-full/libnix-direct/__eqdf2.o $PWD/build-amiga-vlink-full/libnix-direct/__nocommandline.o $PWD/build-amiga-vlink-full/libnix-direct/stricmp.o $PWD/build-amiga-vlink-full/libnix-direct/strnicmp.o"
 
+cat > build-amiga-vlink-full/libnix-direct/indirect-aliases.s <<'EOF'
+        .globl ___cmpdf2
+        .globl ___gedf2
+        .globl ___gtdf2
+        .globl ___ledf2
+        .globl ___ltdf2
+        .globl ___nedf2
+        .globl ___gesf2
+        .globl ___gtsf2
+        .globl ___lesf2
+        .globl ___ltsf2
+        .globl ___nesf2
+        .set ___cmpdf2,___eqdf2
+        .set ___gedf2,___eqdf2
+        .set ___gtdf2,___eqdf2
+        .set ___ledf2,___eqdf2
+        .set ___ltdf2,___eqdf2
+        .set ___nedf2,___eqdf2
+        .set ___gesf2,___eqsf2
+        .set ___gtsf2,___eqsf2
+        .set ___lesf2,___eqsf2
+        .set ___ltsf2,___eqsf2
+        .set ___nesf2,___eqsf2
+EOF
+/opt/amiga/bin/m68k-amigaos-gcc -m68020 -msoft-float -noixemul -c build-amiga-vlink-full/libnix-direct/indirect-aliases.s -o build-amiga-vlink-full/libnix-direct/indirect-aliases.o
+LIBNIX_DIRECT="$LIBNIX_DIRECT $PWD/build-amiga-vlink-full/libnix-direct/indirect-aliases.o"
+
 TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-new-no-libamiga-wrapper.txt" TK4_VLINK_BIN="$NEW_VLINK" TK4_VLINK_BROKEN_DEBUG=1 $CXX $BASE -nostdlib -B"$PWD/build-amiga-vlink-full/bin-new/" /opt/amiga/m68k-amigaos/libnix/lib/ncrt0.o build-amiga-vlink-full/main.o "${OBJS[@]}" build-amiga-vlink-full/base/libtk4-common.a $LIBS_REPACK $LIBNIX_DIRECT -lstdc++ -lm -lnix20 -lnixmain -lnix -lstubs -lgcc -lpthread -lm -l__m__ -lgcc -lnix20 -lnixmain -lnix -lstubs -lstdc++ -lgcc -lm -l__m__ -o build-amiga-vlink-full/full-vlink-new-no-libamiga 2>build-amiga-vlink-full/vlink-new-no-libamiga-link.txt
 vlink_new_no_libamiga_rc=$?
 echo "=== vlink stderr ==="
