@@ -44,7 +44,15 @@ TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-new-repack-wrapper.txt"
 vlink_new_repack_rc=$?
 TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-new-no-acrypt-wrapper.txt" TK4_VLINK_BIN="$NEW_VLINK" TK4_VLINK_BROKEN_DEBUG=1 $CXX $BASE -nostdlib -B"$PWD/build-amiga-vlink-full/bin-new/" /opt/amiga/m68k-amigaos/libnix/lib/ncrt0.o build-amiga-vlink-full/main.o "${OBJS[@]}" build-amiga-vlink-full/base/libtk4-common.a $LIBS_NO_ACRYPT -o build-amiga-vlink-full/full-vlink-new-no-acrypt 2>build-amiga-vlink-full/vlink-new-no-acrypt-link.txt
 vlink_new_no_acrypt_rc=$?
-TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-new-no-libamiga-wrapper.txt" TK4_VLINK_BIN="$NEW_VLINK" TK4_VLINK_BROKEN_DEBUG=1 $CXX $BASE -nostdlib -B"$PWD/build-amiga-vlink-full/bin-new/" /opt/amiga/m68k-amigaos/libnix/lib/ncrt0.o build-amiga-vlink-full/main.o "${OBJS[@]}" build-amiga-vlink-full/base/libtk4-common.a $LIBS_REPACK -lstdc++ -lm -lnix20 -lnixmain -lnix -lstubs -lgcc -lpthread -lm -l__m__ -lgcc -lnix20 -lnixmain -lnix -lstubs -lstdc++ -lgcc -lm -l__m__ -o build-amiga-vlink-full/full-vlink-new-no-libamiga 2>build-amiga-vlink-full/vlink-new-no-libamiga-link.txt
+mkdir -p build-amiga-vlink-full/libnix-direct
+( cd build-amiga-vlink-full/libnix-direct
+  /opt/amiga/bin/m68k-amigaos-ar x /opt/amiga/m68k-amigaos/libnix/lib/libm020/libnix.a __eqsf2.o __eqdf2.o
+  /opt/amiga/bin/m68k-amigaos-ar x /opt/amiga/m68k-amigaos/libnix/lib/libm020/libnixmain.a __nocommandline.o
+  /opt/amiga/bin/m68k-amigaos-ar x /opt/amiga/m68k-amigaos/libnix/lib/libm020/libnix20.a stricmp.o strnicmp.o
+)
+LIBNIX_DIRECT="$PWD/build-amiga-vlink-full/libnix-direct/__eqsf2.o $PWD/build-amiga-vlink-full/libnix-direct/__eqdf2.o $PWD/build-amiga-vlink-full/libnix-direct/__nocommandline.o $PWD/build-amiga-vlink-full/libnix-direct/stricmp.o $PWD/build-amiga-vlink-full/libnix-direct/strnicmp.o"
+
+TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-new-no-libamiga-wrapper.txt" TK4_VLINK_BIN="$NEW_VLINK" TK4_VLINK_BROKEN_DEBUG=1 $CXX $BASE -nostdlib -B"$PWD/build-amiga-vlink-full/bin-new/" /opt/amiga/m68k-amigaos/libnix/lib/ncrt0.o build-amiga-vlink-full/main.o "${OBJS[@]}" build-amiga-vlink-full/base/libtk4-common.a $LIBS_REPACK $LIBNIX_DIRECT -lstdc++ -lm -lnix20 -lnixmain -lnix -lstubs -lgcc -lpthread -lm -l__m__ -lgcc -lnix20 -lnixmain -lnix -lstubs -lstdc++ -lgcc -lm -l__m__ -o build-amiga-vlink-full/full-vlink-new-no-libamiga 2>build-amiga-vlink-full/vlink-new-no-libamiga-link.txt
 vlink_new_no_libamiga_rc=$?
 echo "=== vlink stderr ==="
 cat build-amiga-vlink-full/vlink-old-link.txt || true
