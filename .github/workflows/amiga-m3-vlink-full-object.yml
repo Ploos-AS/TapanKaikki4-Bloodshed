@@ -147,6 +147,24 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/no-libamiga
           cat build-amiga-vlink-full/no-libamiga/symbol-definitions.txt
 
+      - name: Map remaining vlink runtime symbols
+        run: |
+          mkdir -p build-amiga-vlink-full/remaining-symbols
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -euo pipefail
+            OUT=build-amiga-vlink-full/remaining-symbols/report.txt
+            : > "$OUT"
+            for sym in _strcasecmp _strncasecmp ___nocommandline _exit ___memset64 __EH_FRAME_BEGINS__ __EH_FRAME_OBJECTS__; do
+              echo "=== $sym ===" >> "$OUT"
+              find /opt/amiga -type f \( -name "*.a" -o -name "*.o" \) -print0 |
+                while IFS= read -r -d "" f; do
+                  /opt/amiga/bin/m68k-amigaos-nm -A "$f" 2>/dev/null | grep -F " $sym" >> "$OUT" || true
+                done
+            done
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/remaining-symbols
+          cat build-amiga-vlink-full/remaining-symbols/report.txt
+
       - name: Inspect libnix indirect symbol objects
         run: |
           mkdir -p build-amiga-vlink-full/libnix-indirect
