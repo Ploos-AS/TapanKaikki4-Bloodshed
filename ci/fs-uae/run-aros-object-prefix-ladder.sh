@@ -14,6 +14,20 @@ if [[ "$base_root" == "$base" ]]; then rel_root=""; else rel_root="${base_root#"
 echo "STATUS=DIAGNOSTIC" >> "$OUT_DIR/result.txt"
 echo "GATE=M3_CUMULATIVE_OBJECT_PREFIX_RUNTIME" >> "$OUT_DIR/result.txt"
 first_failure=none
+while IFS=$'\t' read -r id count link_rc last_obj; doT_DIR="${1:-build/fs-uae/aros-m3-prefix}"
+NATIVE_DIR=build-amiga-prefix-out
+MANIFEST="$NATIVE_DIR/manifest.tsv"
+SYSTEM_DIR=build/fs-uae/aros-system
+mkdir -p "$OUT_DIR"
+iso="$(ci/fs-uae/fetch-aros-system.sh "$SYSTEM_DIR" | tail -n 1)"
+base="$OUT_DIR/base-root"; rm -rf "$base"; mkdir -p "$base"; 7z x -y -o"$base" "$iso" >/dev/null
+base_startup="$(find "$base" -type f -ipath '*/s/startup-sequence' -print -quit)"
+base_root="$(dirname "$(dirname "$base_startup")")"
+if [[ "$base_root" == "$base" ]]; then rel_root=""; else rel_root="${base_root#"$base"/}"; fi
+: > "$OUT_DIR/result.txt"
+echo "STATUS=DIAGNOSTIC" >> "$OUT_DIR/result.txt"
+echo "GATE=M3_CUMULATIVE_OBJECT_PREFIX_RUNTIME" >> "$OUT_DIR/result.txt"
+first_failure=none
 while IFS=
   bin="prefix-$id-probe"; run_dir="$OUT_DIR/prefix-$id"; tree="$run_dir/system-tree"
   rm -rf "$run_dir"; mkdir -p "$run_dir"; cp -a "$base/." "$tree/"
