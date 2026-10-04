@@ -165,6 +165,23 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/remaining-symbols
           cat build-amiga-vlink-full/remaining-symbols/report.txt
 
+      - name: Trace exit and memset runtime families
+        run: |
+          mkdir -p build-amiga-vlink-full/runtime-families
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -euo pipefail
+            OUT=build-amiga-vlink-full/runtime-families/report.txt
+            : > "$OUT"
+            find /opt/amiga -type f \( -name "*.a" -o -name "*.o" \) -print0 |
+              while IFS= read -r -d "" f; do
+                /opt/amiga/bin/m68k-amigaos-nm -A "$f" 2>/dev/null |
+                  grep -E "([[:space:]]|_)(exit|_exit|memset|__memset|memset32|memset64)$" >> "$OUT" || true
+              done
+            sort -u "$OUT" -o "$OUT"
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-vlink-full/runtime-families
+          cat build-amiga-vlink-full/runtime-families/report.txt
+
       - name: Inspect libnix indirect symbol objects
         run: |
           mkdir -p build-amiga-vlink-full/libnix-indirect
