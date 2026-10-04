@@ -102,6 +102,16 @@ EOF
 /opt/amiga/bin/m68k-amigaos-gcc -m68020 -msoft-float -noixemul -c build-amiga-vlink-full/libnix-direct/indirect-trampolines.s -o build-amiga-vlink-full/libnix-direct/indirect-trampolines.o
 LIBNIX_DIRECT="$LIBNIX_DIRECT $PWD/build-amiga-vlink-full/libnix-direct/indirect-trampolines.o"
 
+cat > build-amiga-vlink-full/libnix-direct/exit-trampoline.S <<'EOF'
+.text
+.globl _exit
+.type _exit,@function
+_exit:
+    jmp __exit
+EOF
+/opt/amiga/bin/m68k-amigaos-gcc -m68020 -msoft-float -c build-amiga-vlink-full/libnix-direct/exit-trampoline.S -o build-amiga-vlink-full/libnix-direct/exit-trampoline.o
+LIBNIX_DIRECT="$LIBNIX_DIRECT $PWD/build-amiga-vlink-full/libnix-direct/exit-trampoline.o"
+
 mkdir -p build-amiga-vlink-full/libc-direct
 (
   cd build-amiga-vlink-full/libc-direct
