@@ -102,6 +102,13 @@ EOF
 /opt/amiga/bin/m68k-amigaos-gcc -m68020 -msoft-float -noixemul -c build-amiga-vlink-full/libnix-direct/indirect-trampolines.s -o build-amiga-vlink-full/libnix-direct/indirect-trampolines.o
 LIBNIX_DIRECT="$LIBNIX_DIRECT $PWD/build-amiga-vlink-full/libnix-direct/indirect-trampolines.o"
 
+mkdir -p build-amiga-vlink-full/libc-direct
+(
+  cd build-amiga-vlink-full/libc-direct
+  /opt/amiga/bin/m68k-amigaos-ar x /opt/amiga/m68k-amigaos/lib/libm020/libc.a lib_a-strcasecmp.o lib_a-strncasecmp.o
+)
+LIBNIX_DIRECT="$LIBNIX_DIRECT $PWD/build-amiga-vlink-full/libc-direct/lib_a-strcasecmp.o $PWD/build-amiga-vlink-full/libc-direct/lib_a-strncasecmp.o"
+
 TK4_VLINK_WRAPPER_LOG="$PWD/build-amiga-vlink-full/vlink-new-no-libamiga-wrapper.txt" TK4_VLINK_BIN="$NEW_VLINK" TK4_VLINK_BROKEN_DEBUG=1 $CXX $BASE -nostdlib -B"$PWD/build-amiga-vlink-full/bin-new/" /opt/amiga/m68k-amigaos/libnix/lib/ncrt0.o build-amiga-vlink-full/main.o "${OBJS[@]}" build-amiga-vlink-full/base/libtk4-common.a $LIBS_REPACK $LIBNIX_DIRECT -lstdc++ -lm -lnix20 -lnixmain -lnix -lstubs -lgcc -lpthread -lm -l__m__ -lgcc -lnix20 -lnixmain -lnix -lstubs -lstdc++ -lgcc -lm -l__m__ -o build-amiga-vlink-full/full-vlink-new-no-libamiga 2>build-amiga-vlink-full/vlink-new-no-libamiga-link.txt
 vlink_new_no_libamiga_rc=$?
 echo "=== vlink stderr ==="
