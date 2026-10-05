@@ -39,11 +39,15 @@ while IFS=$'\t' read -r id count link_rc last_obj; do
   mkdir -p "$run_dir"
   cp -a "$base/." "$tree/"
 
-  if [[ -n "$rel_root" ]]; then root="$tree/$rel_root"; else root="$tree"; fi
+  if [[ -n "$rel_root" ]]; then
+    root="$tree/$rel_root"
+  else
+    root="$tree"
+  fi
+
   startup="$root/S/Startup-Sequence"
   cp "$NATIVE_DIR/$bin" "$root/$bin"
   mkdir -p "$root/save"
-
   cat > "$startup" <<EOF
 SYS:C/Stack 262144
 SYS:C/Echo "PREFIX_BEFORE=1" >SYS:prefix-before.txt
@@ -54,7 +58,6 @@ EOF
 
   config="$run_dir/aros-guest.fs-uae"
   sed "s|@AROS_ROOT@|$PWD/$root|" ci/fs-uae/aros-guest.fs-uae > "$config"
-
   set +e
   timeout --signal=TERM --kill-after=5s 20s xvfb-run -a fs-uae "$config" >"$run_dir/fs-uae.log" 2>&1
   rc=$?
@@ -64,8 +67,8 @@ EOF
   returned=no
   [[ -f "$root/save/m3-prefix-main.txt" ]] && main=yes
   [[ -f "$root/prefix-after.txt" ]] && returned=yes
-
   printf "PREFIX_%s_COUNT=%s LINKED=yes MAIN=%s RETURNED=%s LAST=%s FS_UAE_EXIT=%s\n" "$id" "$count" "$main" "$returned" "$last_obj" "$rc" | tee -a "$OUT_DIR/result.txt"
+
   if [[ "$main" != yes && "$first_failure" == none ]]; then
     first_failure="$id"
   fi
