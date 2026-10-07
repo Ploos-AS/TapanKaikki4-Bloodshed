@@ -49,6 +49,7 @@ while IFS=$'\t' read -r id count link_rc last_obj; do
   cp "$NATIVE_DIR/$bin" "$root/$bin"
   mkdir -p "$root/save"
   cat > "$startup" <<EOF
+SYS:C/Echo "PREFIX_GUEST_STARTED=1" >SYS:prefix-guest-started.txt
 SYS:C/Stack 262144
 SYS:C/Echo "PREFIX_BEFORE=1" >SYS:prefix-before.txt
 SYS:$bin
@@ -63,15 +64,24 @@ EOF
   rc=$?
   set -e
 
+  guest_started=no
+  before=no
   main=no
   returned=no
+  [[ -f "$root/prefix-guest-started.txt" ]] && guest_started=yes
+  [[ -f "$root/prefix-before.txt" ]] && before=yes
   [[ -f "$root/save/m3-prefix-main.txt" ]] && main=yes
   [[ -f "$root/prefix-after.txt" ]] && returned=yes
-  printf "PREFIX_%s_COUNT=%s LINKED=yes MAIN=%s RETURNED=%s LAST=%s FS_UAE_EXIT=%s\n" "$id" "$count" "$main" "$returned" "$last_obj" "$rc" | tee -a "$OUT_DIR/result.txt"
+  printf "PREFIX_%s_COUNT=%s LINKED=yes GUEST_STARTED=%s BEFORE=%s MAIN=%s RETURNED=%s LAST=%s FS_UAE_EXIT=%s\n" "$id" "$count" "$guest_started" "$before" "$main" "$returned" "$last_obj" "$rc" | tee -a "$OUT_DIR/result.txt"
 
-  if [[ "$main" != yes && "$first_failure" == none ]]; then
+  if [[ "$guest_started" == yes && "$before" == yes && "$main" != yes && "$first_failure" == none ]]; then
     first_failure="$id"
   fi
 done < "$MANIFEST"
 
 echo "FIRST_FAILURE=$first_failure" | tee -a "$OUT_DIR/result.txt"
+# Missing guest startup evidence is an infrastructure failure, not a TK4 regression.
+if grep -q "LINKED=yes GUEST_STARTED=no" "$OUT_DIR/result.txt"; then
+  echo "INFRA_STATUS=FAIL_GUEST_NOT_STARTED" | tee -a "$OUT_DIR/result.txt"
+  exit 1
+fi
