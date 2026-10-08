@@ -24,3 +24,11 @@ The FS-UAE A1200/AROS guest starts, SYS:save is writable, and standalone Bebbo C
 - Audio quality, controls and gameplay interaction remain separate follow-up gates.
 
 The project remains GPL-2.0-only per upstream licensing.
+
+## Evidence update — 2026-10-08, commit 9f7acc4
+
+- [Prefix run 37702906530](https://github.com/Ploos-AS/TapanKaikki4-Bloodshed/actions/runs/37702906530): 57/58 prefixes did **not link**; only prefix 058 (all 58 objects) linked, and `MAIN=no` with guest boot/before evidence present. `FIRST_FAILURE=058` does **not** identify `texts.cpp` as causal: it is simply the last file in the first linkable prefix.
+- [Leave-one-out run 37702906440](https://github.com/Ploos-AS/TapanKaikki4-Bloodshed/actions/runs/37702906440): 2/58 exclusions linked (CGameApp.cpp and CSplash.cpp), and both failed before main. `MAIN_REACHED_PROBES=0`; remaining 56 exclusions were linker failures and yield no runtime evidence.
+- [Linker comparison 37702906457](https://github.com/Ploos-AS/TapanKaikki4-Bloodshed/actions/runs/37702906457): GNU ld links the full object set (`GNU_LINK_RC=0`) but `GNU_MAIN=no`; old/new vlink variants return link error 1, so they cannot be compared at runtime yet.
+
+**Interpretation:** Existing prefix/drop results cannot isolate the offending translation unit because almost every reduced set has unresolved dependencies. The next experiment must retain dependency closure (or supply controlled stubs), and distinguish successful linking from runtime success. Avoid claiming a specific object is defective from the prefix ordering.
