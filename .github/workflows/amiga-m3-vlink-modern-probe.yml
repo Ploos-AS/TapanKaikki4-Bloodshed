@@ -1,0 +1,33 @@
+name: Amiga M3 modern vlink qualification
+on:
+  push:
+    branches: [amiga-m3]
+    paths:
+      - '.github/workflows/amiga-m3-vlink-modern-probe.yml'
+      - 'ci/fs-uae/vlink-ld-wrapper.sh'
+  workflow_dispatch:
+jobs:
+  modern-vlink:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build current vlink and inspect compatibility
+        run: |
+          set -euxo pipefail
+          mkdir -p build-amiga-modern-vlink
+          git clone --depth=1 https://github.com/siemens-mobile-hacks/vlink.git build-amiga-modern-vlink/src
+          git -C build-amiga-modern-vlink/src rev-parse HEAD > build-amiga-modern-vlink/source-commit.txt
+          mkdir -p build-amiga-modern-vlink/src/objects
+          make -C build-amiga-modern-vlink/src
+          build-amiga-modern-vlink/src/vlink -v > build-amiga-modern-vlink/version.txt 2>&1 || true
+          build-amiga-modern-vlink/src/vlink -h > build-amiga-modern-vlink/help.txt 2>&1 || true
+          grep -Ei 'broken|debug|hunk|amiga|format' build-amiga-modern-vlink/help.txt > build-amiga-modern-vlink/relevant-options.txt || true
+          cat build-amiga-modern-vlink/version.txt
+          cat build-amiga-modern-vlink/relevant-options.txt
+          grep -Rni -- '-broken-debug' build-amiga-modern-vlink/src > build-amiga-modern-vlink/broken-debug-source.txt || true
+          cat build-amiga-modern-vlink/broken-debug-source.txt || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tk4-m3-modern-vlink
+          path: build-amiga-modern-vlink/

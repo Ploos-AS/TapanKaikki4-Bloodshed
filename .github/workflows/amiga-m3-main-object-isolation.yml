@@ -1,0 +1,102 @@
+name: Amiga M3 main executable object isolation
+
+on:
+  push:
+    branches: [amiga-m3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  main-object-isolation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+
+      - name: Build one probe per executable translation unit
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -euxo pipefail
+            if ! command -v cmake >/dev/null 2>&1; then apt-get update; DEBIAN_FRONTEND=noninteractive apt-get install -y cmake; fi
+            rm -rf build-amiga build-amiga-main-objects
+            mkdir build-amiga && cd build-amiga
+            cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/amiga-toolchain.cmake -DTK4_AMIGA=ON -DCMAKE_BUILD_TYPE=Release \
+              -DSDL_INCLUDE_DIR=/opt/amiga/m68k-amigaos/include/SDL -DSDL_LIBRARY=/opt/amiga/m68k-amigaos/lib/libSDL.a \
+              -DSDL_IMAGE_INCLUDE_DIR=/opt/amiga/SDL_image-pack/include/SDL -DSDL_IMAGE_LIBRARY=/opt/amiga/SDL_image-pack/lib/libSDL_image.a \
+              -DSDL_MIXER_INCLUDE_DIR=/opt/amiga/SDL_mixer/include -DSDL_MIXER_LIBRARY=/opt/amiga/SDL_mixer/lib/libSDL_mixer.a
+            cmake --build . -- -j2
+            cd ..
+
+            CXX=/opt/amiga/bin/m68k-amigaos-g++
+            AR=/opt/amiga/bin/m68k-amigaos-ar
+            BASE="-m68020 -msoft-float -noixemul"
+            LIBS="/opt/amiga/SDL_image-pack/lib/libSDL_image.a /opt/amiga/SDL_mixer/lib/libSDL_mixer.a /opt/amiga/m68k-amigaos/lib/libSDL.a /opt/amiga/SDL_image-pack/lib/libjpeg.a /opt/amiga/SDL_image-pack/lib/libpng.a /opt/amiga/zlib-package/lib/libz.a -lpthread"
+            OUT=build-amiga-main-objects
+            mkdir -p "$OUT/objects"
+
+            mapfile -t OBJECTS < <(find build-amiga/CMakeFiles/tk4.dir/src -type f -name "*.cpp.obj" ! -name "main.cpp.obj" | sort)
+            test "${#OBJECTS[@]}" -gt 10
+            : > "$OUT/manifest.tsv"
+            printf "%s\n" "${OBJECTS[@]}" > "$OUT/object-list.txt"
+
+            # Each probe force-links exactly one src/ translation unit. tk4-common
+            # remains available normally to satisfy common-layer references. This
+            # deliberately avoids pulling the rest of the executable objects, so
+            # a pre-main failure identifies properties of that individual TU.
+            for i in "${!OBJECTS[@]}"; do
+              obj="${OBJECTS[$i]}"
+              member="${obj#build-amiga/CMakeFiles/tk4.dir/src/}"
+              id="$(printf "%03d" "$i")"
+              safe="$(printf "%s" "$member" | tr "/." "__")"
+              one="$OUT/lib-src-${id}.a"
+              cp "$obj" "$OUT/objects/${id}-${safe}.obj"
+              $AR rcs "$one" "$OUT/objects/${id}-${safe}.obj"
+              marker="m3-src-obj-${id}-main.txt"
+              bin="src-obj-${id}-probe"
+              $CXX $BASE -DPROBE_MARKER=\"SYS:save/${marker}\" -DPROBE_LABEL=\"SRC_OBJ_${id}_MAIN=1\\n\" \
+                -c ci/fs-uae/tk4-object-probe.cpp -o "$OUT/src-obj-${id}-main.o"
+              set +e
+              $CXX $BASE "$OUT/src-obj-${id}-main.o" -Wl,--whole-archive "$one" -Wl,--no-whole-archive \
+                build-amiga/libtk4-common.a $LIBS -Wl,-Map="$OUT/src-obj-${id}.map" -o "$OUT/$bin" 2>"$OUT/src-obj-${id}.link.txt"
+              rc=$?
+              set -e
+              if [ "$rc" -eq 0 ]; then
+                printf "%s\t%s\t%s\t%s\n" "$id" "$member" "$bin" "$marker" >> "$OUT/manifest.tsv"
+              else
+                printf "LINK_SKIP=%s RC=%s\n" "$member" "$rc" | tee -a "$OUT/link-skips.txt"
+              fi
+            done
+            test -s "$OUT/manifest.tsv"
+            cat "$OUT/manifest.tsv"
+            cat "$OUT/link-skips.txt" 2>/dev/null || true
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-main-objects
+
+      - name: Run linkable executable object probes inside AROS
+        run: |
+          chmod +x ci/fs-uae/*.sh
+          ci/fs-uae/run-aros-main-object-isolation.sh
+
+      - name: Upload executable object evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-main-object-isolation
+          path: |
+            build-amiga-main-objects/manifest.tsv
+            build-amiga-main-objects/object-list.txt
+            build-amiga-main-objects/link-skips.txt
+            build-amiga-main-objects/*.link.txt
+            build-amiga-main-objects/*.map
+            build/fs-uae/aros-m3-main-object-isolation/result.txt
+            build/fs-uae/aros-m3-main-object-isolation/*/result.txt
+            build/fs-uae/aros-m3-main-object-isolation/*/fs-uae.log
+          if-no-files-found: warn

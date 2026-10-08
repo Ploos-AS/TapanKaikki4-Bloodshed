@@ -1,0 +1,13 @@
+name: Amiga M3 TU perturbation runtime
+
+on:
+  workflow_run:
+    workflows: ["Amiga M3 translation-unit split diagnostics"]
+    types: [completed]
+
+jobs:
+  note:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "TU build/HUNK diagnostic completed. Runtime integration follows after layout evidence identifies a viable variant."

@@ -2,7 +2,6 @@
 #define __CCOORD_H
 
 #include <sstream>
-#include <iostream> 
 #include <string>
 
 template <class T> class CCoord;

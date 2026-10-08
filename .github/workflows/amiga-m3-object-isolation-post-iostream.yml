@@ -1,0 +1,61 @@
+name: Amiga M3 post-iostream object isolation
+
+on:
+  push:
+    branches: [amiga-m3]
+    paths:
+      - '.github/workflows/amiga-m3-object-isolation-post-iostream.yml'
+      - 'ci/fs-uae/build-common-object-isolation.sh'
+      - 'ci/fs-uae/run-aros-tu-perturbation.sh'
+      - 'ci/fs-uae/tk4-object-probe.cpp'
+      - 'src/common/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  object-isolation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FS-UAE runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fs-uae xvfb curl p7zip-full unzip
+
+      - name: Build one probe per common object
+        run: |
+          chmod +x ci/fs-uae/build-common-object-isolation.sh
+          ci/fs-uae/build-common-object-isolation.sh
+
+      - name: Inspect probe HUNK layouts
+        run: |
+          : > build-amiga-tu-out/hunk-report.txt
+          for f in build-amiga-tu-out/object-*-probe; do
+            echo "=== $f ===" | tee -a build-amiga-tu-out/hunk-report.txt
+            python3 tools/amiga_hunk_inspect.py "$f" | tee -a build-amiga-tu-out/hunk-report.txt
+          done
+
+      - name: Run each common object probe inside AROS
+        run: |
+          chmod +x ci/fs-uae/*.sh
+          ci/fs-uae/run-aros-tu-perturbation.sh
+
+      - name: Upload post-iostream object isolation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-object-isolation-post-iostream
+          path: |
+            build-amiga-tu-out/manifest.tsv
+            build-amiga-tu-out/object-report.txt
+            build-amiga-tu-out/hunk-report.txt
+            build-amiga-tu-out/object-*.map
+            build-amiga-tu-out/object-*.trace
+            build/fs-uae/aros-m3-tu/result.txt
+            build/fs-uae/aros-m3-tu/*/result.txt
+            build/fs-uae/aros-m3-tu/*/fs-uae.log
+          if-no-files-found: warn

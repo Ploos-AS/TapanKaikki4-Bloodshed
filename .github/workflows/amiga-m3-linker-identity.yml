@@ -1,0 +1,44 @@
+name: Amiga M3 linker identity and vlink availability
+
+on:
+  push:
+    branches: [amiga-m3]
+  pull_request:
+    branches: [amiga-m2]
+  workflow_dispatch:
+
+jobs:
+  linker-identity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect Bebbo linker stack
+        run: |
+          mkdir -p build-amiga-linker
+          docker run --rm -v "$PWD:/work" -w /work ozzyboshi/bebbo-amiga-gcc:latest bash -lc '
+            set -eu
+            OUT=build-amiga-linker/report.txt
+            : > "$OUT"
+            for t in m68k-amigaos-g++ m68k-amigaos-gcc m68k-amigaos-ld vlink; do
+              echo "=== $t ===" >> "$OUT"
+              if command -v "$t" >/dev/null 2>&1; then
+                command -v "$t" >> "$OUT"
+                "$t" --version >> "$OUT" 2>&1 || true
+              elif [ -x "/opt/amiga/bin/$t" ]; then
+                echo "/opt/amiga/bin/$t" >> "$OUT"
+                "/opt/amiga/bin/$t" --version >> "$OUT" 2>&1 || true
+              else
+                echo "NOT_FOUND" >> "$OUT"
+              fi
+            done
+            echo "=== collect2/linker selection ===" >> "$OUT"
+            /opt/amiga/bin/m68k-amigaos-g++ -m68020 -msoft-float -noixemul -v -x c++ - -o build-amiga-linker/minimal </dev/null >> "$OUT" 2>&1 || true
+            find /opt/amiga -type f \( -name "vlink" -o -name "*vlink*" \) -print >> "$OUT" 2>&1 || true
+          '
+          sudo chown -R "$(id -u):$(id -g)" build-amiga-linker
+          cat build-amiga-linker/report.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tk4-m3-linker-identity
+          path: build-amiga-linker/
