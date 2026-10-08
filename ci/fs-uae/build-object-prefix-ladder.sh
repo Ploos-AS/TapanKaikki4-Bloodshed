@@ -29,6 +29,11 @@ for n in $(seq 1 "${#OBJS[@]}"); do
   rc=$?
   set -e
   if [ "$rc" -ne 0 ]; then rm -f "$bin"; fi
+  # Retain the linker diagnostic for every unlinked prefix; most prefixes
+  # omit required definitions and cannot provide runtime isolation evidence.
+  if [ "$rc" -ne 0 ]; then
+    grep -E "undefined reference|multiple definition|cannot find|collect2:|error:" "$bin.link.txt" | head -n 12 > "$bin.link-summary.txt" || true
+  fi
   printf "%s\\t%s\\t%s\\t%s\\n" "$id" "$n" "$rc" "${OBJS[$((n-1))]}" >> build-amiga-prefix-out/manifest.tsv
 done
 '
