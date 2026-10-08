@@ -49,11 +49,14 @@ EOF
   timeout --signal=TERM --kill-after=5s 25s xvfb-run -a fs-uae "$config" > "$run_dir/fs-uae.log" 2>&1
   local rc=$?
   set -e
-  local main=no returned=no
+  local guest_started=no before=no main=no returned=no
+  [[ -f "$root/main-object-started.txt" ]] && guest_started=yes
+  [[ -f "$root/main-object-before.txt" ]] && before=yes
   [[ -f "$root/save/$marker" ]] && main=yes
   [[ -f "$root/main-object-after.txt" ]] && returned=yes
   {
     echo "PROBE=$name"; echo "LABEL=$label"; echo "FS_UAE_EXIT=$rc"
+    echo "GUEST_STARTED=$guest_started"; echo "BEFORE=$before"
     echo "MAIN=$main"; echo "RETURNED=$returned"
     if [[ -f "$root/main-object-rc.txt" ]]; then
       tr -d '\r' < "$root/main-object-rc.txt" | sed 's/^/GUEST_RC=/'
@@ -68,16 +71,29 @@ for spec in "${probes[@]}"; do IFS=: read -r name bin marker label <<<"$spec"; r
   echo "STATUS=DIAGNOSTIC"
   echo "GATE=M3_MAIN_OBJECT_ISOLATION"
   failing=0
+  guest_failures=0
+  reached_main=0
   for spec in "${probes[@]}"; do
     IFS=: read -r name bin marker label <<<"$spec"
     root="$(probe_root "$OUT_DIR/$name/system-tree")"
-    main=no; returned=no
+    guest_started=no; before=no; main=no; returned=no
+    [[ -f "$root/main-object-started.txt" ]] && guest_started=yes
+    [[ -f "$root/main-object-before.txt" ]] && before=yes
     [[ -f "$root/save/$marker" ]] && main=yes
     [[ -f "$root/main-object-after.txt" ]] && returned=yes
-    echo "OBJECT=$label MAIN=$main RETURNED=$returned"
-    if [[ "$main" != yes ]]; then echo "CULPRIT=$label"; failing=$((failing + 1)); fi
+    echo "OBJECT=$label GUEST_STARTED=$guest_started BEFORE=$before MAIN=$main RETURNED=$returned"
+    if [[ "$guest_started" != yes || "$before" != yes ]]; then
+      echo "GUEST_START_FAILURE=$label"; guest_failures=$((guest_failures + 1))
+    elif [[ "$main" != yes ]]; then
+      echo "PRE_MAIN_FAILURE_SET=$label"; failing=$((failing + 1))
+    else
+      reached_main=$((reached_main + 1))
+    fi
   done
-  echo "CULPRIT_COUNT=$failing"
+  echo "PRE_MAIN_FAILURE_SETS=$failing"
+  echo "GUEST_START_FAILURE_SETS=$guest_failures"
+  echo "MAIN_REACHED_SETS=$reached_main"
+  echo "NOTE=Failure sets may overlap in dependency closure; no individual object is proven causal."
 } | tee "$OUT_DIR/result.txt"
 
 exit 0
